@@ -8,29 +8,87 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  passwordHash  String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  projects      Project[]
+  id               String            @id @default(cuid())
+  name             String?
+  email            String?           @unique
+  passwordHash     String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  projects         Project[]
+  oauthConnections OAuthConnection[]
+  reports          GeneratedReport[]
+}
+
+model OAuthConnection {
+  id               String          @id @default(cuid())
+  userId           String
+  provider         String          // "google" or "meta"
+  accessToken      String
+  refreshToken     String?
+  tokenExpiresAt   DateTime?
+  connectionStatus String          @default("active")
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectSources   ProjectSource[]
 }
 
 model Project {
-  id                     String    @id @default(cuid())
-  userId                 String
-  projectName            String
-  selectedTheme          String?
-  reportLanguage         String?
-  reportingPeriodStart   DateTime?
-  reportingPeriodEnd     DateTime?
-  comparisonPeriodStart  DateTime?
-  comparisonPeriodEnd    DateTime?
-  pdfTitle               String?
-  clientLogoUrl          String?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  id                    String          @id @default(cuid())
+  userId                String
+  projectName           String
+  selectedTheme         String?
+  reportLanguage        String?
+  reportingPeriodStart  DateTime?
+  reportingPeriodEnd    DateTime?
+  comparisonPeriodStart DateTime?
+  comparisonPeriodEnd   DateTime?
+  pdfTitle              String?
+  clientLogoUrl         String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
-  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectSources ProjectSource[]
+  projectNotes   ProjectNote[]
+  reports        GeneratedReport[]
+}
+
+model ProjectSource {
+  id                  String          @id @default(cuid())
+  projectId           String
+  sourceType          String          // "gsc", "ga4", "google_ads", "meta_ads"
+  oauthConnectionId   String
+  externalAccountId   String
+  externalAccountName String?
+  isEnabled           Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  oauthConnection OAuthConnection @relation(fields: [oauthConnectionId], references: [id])
+}
+
+model ProjectNote {
+  id        String   @id @default(cuid())
+  projectId String
+  noteType  String   // "seo", "traffic", "google_ads", "meta_ads", "final"
+  noteText  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model GeneratedReport {
+  id                String   @id @default(cuid())
+  projectId         String
+  generatedByUserId String
+  fileName          String
+  fileUrl           String
+  generatedAt       DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [generatedByUserId], references: [id])
 }
