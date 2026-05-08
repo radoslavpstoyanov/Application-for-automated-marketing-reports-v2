@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Toast } from "@/components/Toast";
 
 export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [shakeFields, setShakeFields] = useState<{ name?: boolean; email?: boolean; password?: boolean }>({});
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -16,6 +18,22 @@ export default function RegisterPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setShakeFields({});
+
+    // Basic validation
+    let hasError = false;
+    const newShakeFields: { name?: boolean; email?: boolean; password?: boolean } = {};
+
+    if (!name) { newShakeFields.name = true; hasError = true; }
+    if (!email) { newShakeFields.email = true; hasError = true; }
+    if (!password) { newShakeFields.password = true; hasError = true; }
+
+    if (hasError) {
+      setShakeFields(newShakeFields);
+      setError("Моля, попълнете всички полета");
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await fetch("/api/register", {
@@ -33,6 +51,7 @@ export default function RegisterPage() {
       router.push("/login?registered=true");
     } catch (err: any) {
       setError(err.message);
+      setShakeFields({ name: true, email: true, password: true });
     } finally {
       setLoading(false);
     }
@@ -46,15 +65,18 @@ export default function RegisterPage() {
           Създайте своя акаунт, за да започнете
         </p>
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+        <form onSubmit={handleSubmit} noValidate style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
           <div>
             <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.85rem" }}>Пълно име</label>
             <input
               type="text"
               placeholder="Иван Иванов"
+              className={shakeFields.name ? "shake" : ""}
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
+              onChange={(e) => {
+                setName(e.target.value);
+                if (shakeFields.name) setShakeFields(prev => ({ ...prev, name: false }));
+              }}
             />
           </div>
 
@@ -63,9 +85,12 @@ export default function RegisterPage() {
             <input
               type="email"
               placeholder="ivan@example.com"
+              className={shakeFields.email ? "shake" : ""}
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (shakeFields.email) setShakeFields(prev => ({ ...prev, email: false }));
+              }}
             />
           </div>
 
@@ -74,15 +99,14 @@ export default function RegisterPage() {
             <input
               type="password"
               placeholder="••••••••"
+              className={shakeFields.password ? "shake" : ""}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (shakeFields.password) setShakeFields(prev => ({ ...prev, password: false }));
+              }}
             />
           </div>
-
-          {error && (
-            <p style={{ color: "#ef4444", fontSize: "0.85rem", textAlign: "center" }}>{error}</p>
-          )}
 
           <button type="submit" className="primary" disabled={loading} style={{ marginTop: "0.5rem" }}>
             {loading ? "Създаване..." : "Регистрирай се"}
@@ -96,6 +120,10 @@ export default function RegisterPage() {
           </Link>
         </p>
       </div>
+
+      {error && (
+        <Toast message={error} onClose={() => setError("")} />
+      )}
     </div>
   );
 }

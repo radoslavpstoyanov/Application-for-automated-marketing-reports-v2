@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Toast } from "@/components/Toast";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [shakeFields, setShakeFields] = useState<{ email?: boolean; password?: boolean }>({});
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -18,6 +20,27 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setShakeFields({});
+
+    // Basic validation
+    let hasError = false;
+    const newShakeFields: { email?: boolean; password?: boolean } = {};
+
+    if (!email) {
+      newShakeFields.email = true;
+      hasError = true;
+    }
+    if (!password) {
+      newShakeFields.password = true;
+      hasError = true;
+    }
+
+    if (hasError) {
+      setShakeFields(newShakeFields);
+      setError("Моля, попълнете всички полета");
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await signIn("credentials", {
@@ -28,6 +51,7 @@ export default function LoginPage() {
 
       if (res?.error) {
         setError("Невалиден имейл или парола");
+        setShakeFields({ email: true, password: true });
       } else {
         router.push("/dashboard");
       }
@@ -46,7 +70,7 @@ export default function LoginPage() {
           Добре дошли отново
         </p>
 
-        {registered && (
+        {registered && !error && (
           <div style={{ 
             background: "rgba(34, 197, 94, 0.1)", 
             color: "#22c55e", 
@@ -61,15 +85,18 @@ export default function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+        <form onSubmit={handleSubmit} noValidate style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
           <div>
             <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.85rem" }}>Имейл адрес</label>
             <input
               type="email"
               placeholder="ivan@example.com"
+              className={shakeFields.email ? "shake" : ""}
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (shakeFields.email) setShakeFields(prev => ({ ...prev, email: false }));
+              }}
             />
           </div>
 
@@ -81,15 +108,14 @@ export default function LoginPage() {
             <input
               type="password"
               placeholder="••••••••"
+              className={shakeFields.password ? "shake" : ""}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (shakeFields.password) setShakeFields(prev => ({ ...prev, password: false }));
+              }}
             />
           </div>
-
-          {error && (
-            <p style={{ color: "#ef4444", fontSize: "0.85rem", textAlign: "center" }}>{error}</p>
-          )}
 
           <button type="submit" className="primary" disabled={loading} style={{ marginTop: "0.5rem" }}>
             {loading ? "Влизане..." : "Влез"}
@@ -103,6 +129,10 @@ export default function LoginPage() {
           </Link>
         </p>
       </div>
+
+      {error && (
+        <Toast message={error} onClose={() => setError("")} />
+      )}
     </div>
   );
 }
