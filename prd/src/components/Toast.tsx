@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 interface ToastProps {
   message: string;
@@ -19,7 +19,7 @@ export function Toast({ message, duration = 3000, onClose }: ToastProps) {
 
   return (
     <div className="toast">
-      <span>⚠️</span>
+      <span style={{ marginRight: "0.5rem", fontWeight: "bold" }}>!</span>
       {message}
     </div>
   );
