@@ -19,9 +19,11 @@ export async function POST(req: Request, { params }: { params: { provider: strin
       return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
     }
 
-    // MOCK OAUTH FLOW
-    // In a real application, this endpoint would redirect to Google/Meta OAuth consent screen
-    // Here we immediately simulate a successful callback and token generation
+    const { accessToken, refreshToken } = await req.json();
+
+    if (!accessToken) {
+      return NextResponse.json({ error: "Access token is required" }, { status: 400 });
+    }
     
     // Check if it already exists
     const existing = await prisma.oAuthConnection.findFirst({
@@ -32,8 +34,8 @@ export async function POST(req: Request, { params }: { params: { provider: strin
       await prisma.oAuthConnection.update({
         where: { id: existing.id },
         data: { 
-          accessToken: `mock-access-token-${provider}-${Date.now()}`,
-          refreshToken: `mock-refresh-token-${provider}-${Date.now()}`,
+          accessToken,
+          refreshToken: refreshToken || null,
           connectionStatus: "active"
         }
       });
@@ -42,14 +44,14 @@ export async function POST(req: Request, { params }: { params: { provider: strin
         data: {
           userId,
           provider,
-          accessToken: `mock-access-token-${provider}-${Date.now()}`,
-          refreshToken: `mock-refresh-token-${provider}-${Date.now()}`,
+          accessToken,
+          refreshToken: refreshToken || null,
           connectionStatus: "active"
         }
       });
     }
 
-    return NextResponse.json({ message: "Mock connection established" }, { status: 200 });
+    return NextResponse.json({ message: "Успешно свързване" }, { status: 200 });
   } catch (error) {
     console.error("OAuth connect error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
