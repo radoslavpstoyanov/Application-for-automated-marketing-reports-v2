@@ -1,11 +1,8 @@
 "use client";
 
-import { signOut } from "next-auth/react";
 import { Session } from "next-auth";
 import { useState, useEffect, useRef } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 
 interface Project {
   id: string;
@@ -128,22 +125,7 @@ export default function DashboardClient({ session }: { session: Session }) {
 
   return (
     <div style={{ minHeight: "100vh" }}>
-      <header className="glass" style={{ padding: "1rem 2rem", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 1000 }}>
-        <h1 style={{ fontSize: "1.2rem", fontWeight: "700", display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <Image src="/logo.webp" alt="Vectory" width={32} height={32} style={{ borderRadius: "4px" }} />
-          Marketing Reports
-        </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
-          <span style={{ fontSize: "0.9rem", color: "var(--muted-foreground)" }}>{session.user?.email}</span>
-          <button 
-            onClick={() => signOut({ callbackUrl: "/login" })} 
-            className="secondary" 
-            style={{ padding: "0.5rem 1rem", fontSize: "0.85rem" }}
-          >
-            Изход
-          </button>
-        </div>
-      </header>
+
 
       <main className="container" style={{ paddingTop: "4rem", paddingBottom: "4rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "3rem" }}>

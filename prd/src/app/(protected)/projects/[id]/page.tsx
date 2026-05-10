@@ -2,8 +2,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { PrismaClient } from "@prisma/client";
-import Link from "next/link";
-import Image from "next/image";
 
 const prisma = new PrismaClient();
 
@@ -35,14 +33,8 @@ export default async function ProjectPage({ params }: { params: { id: string } }
 
   return (
     <div style={{ minHeight: "100vh" }}>
-      <header className="glass" style={{ padding: "1rem 2rem", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 1000 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
-          <Link href="/dashboard" style={{ fontSize: "1.5rem", fontWeight: "bold", color: "var(--primary)", textDecoration: "none" }}>←</Link>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <Image src="/logo.webp" alt="Vectory" width={28} height={28} />
-            <h1 style={{ fontSize: "1.2rem", fontWeight: "700" }}>{projectData.projectName}</h1>
-          </div>
-        </div>
+      <header style={{ padding: "1.5rem 2rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)" }}>
+        <h1 style={{ fontSize: "1.5rem", fontWeight: "700" }}>{projectData.projectName}</h1>
         <button className="primary">ГЕНЕРИРАЙ ОТЧЕТ</button>
       </header>
 
