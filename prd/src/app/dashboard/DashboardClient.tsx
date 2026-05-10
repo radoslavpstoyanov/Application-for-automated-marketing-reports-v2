@@ -18,6 +18,7 @@ export default function DashboardClient({ session }: { session: Session }) {
   const [loading, setLoading] = useState(true);
   const [showNewModal, setShowNewModal] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
   const [renameValue, setRenameValue] = useState("");
@@ -108,14 +109,20 @@ export default function DashboardClient({ session }: { session: Session }) {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    setActiveMenu(null);
-    if (!confirm("Сигурни ли сте, че искате да изтриете този проект?")) return;
+  const handleDeleteConfirmed = async () => {
+    if (!selectedProject) return;
+    setSubmitting(true);
     try {
-      const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
-      if (res.ok) fetchProjects();
+      const res = await fetch(`/api/projects/${selectedProject.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setShowDeleteModal(false);
+        setSelectedProject(null);
+        fetchProjects();
+      }
     } catch (err) {
       console.error("Failed to delete project");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -227,7 +234,7 @@ export default function DashboardClient({ session }: { session: Session }) {
                       </button>
                       <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "0.4rem 0" }} />
                       <button 
-                        onClick={() => handleDelete(project.id)}
+                        onClick={() => { setSelectedProject(project); setShowDeleteModal(true); setActiveMenu(null); }}
                         style={{ width: "100%", textAlign: "left", padding: "0.75rem", fontSize: "0.9rem", background: "transparent", color: "#ef4444", borderRadius: "0.5rem" }}
                         onMouseEnter={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"}
                         onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
@@ -251,7 +258,7 @@ export default function DashboardClient({ session }: { session: Session }) {
         )}
       </main>
 
-      {/* Modals... */}
+      {/* New Project Modal */}
       {showNewModal && (
         <div className="flex-center" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.8)", zIndex: 2000, backdropFilter: "blur(4px)" }}>
           <div className="glass" style={{ width: "100%", maxWidth: "450px", padding: "2.5rem", borderRadius: "1.5rem" }}>
@@ -271,6 +278,7 @@ export default function DashboardClient({ session }: { session: Session }) {
         </div>
       )}
 
+      {/* Rename Project Modal */}
       {showRenameModal && (
         <div className="flex-center" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.8)", zIndex: 2000, backdropFilter: "blur(4px)" }}>
           <div className="glass" style={{ width: "100%", maxWidth: "450px", padding: "2.5rem", borderRadius: "1.5rem" }}>
@@ -286,6 +294,31 @@ export default function DashboardClient({ session }: { session: Session }) {
                 <button type="submit" className="primary" style={{ flex: 2 }} disabled={submitting}>{submitting ? "Запази" : "Запази промените"}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="flex-center" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.8)", zIndex: 2000, backdropFilter: "blur(4px)" }}>
+          <div className="glass" style={{ width: "100%", maxWidth: "450px", padding: "2.5rem", borderRadius: "1.5rem" }}>
+            <h2 style={{ marginBottom: "0.5rem", color: "#ef4444" }}>Изтриване на проект</h2>
+            <p style={{ color: "var(--muted-foreground)", marginBottom: "2rem", fontSize: "0.9rem" }}>
+              Сигурни ли сте, че искате да изтриете проекта <strong>"{selectedProject?.projectName}"</strong>? Това действие е необратимо.
+            </p>
+            
+            <div style={{ display: "flex", gap: "1rem" }}>
+              <button type="button" className="secondary" style={{ flex: 1 }} onClick={() => { setShowDeleteModal(false); setSelectedProject(null); }}>Отказ</button>
+              <button 
+                type="button" 
+                className="primary" 
+                style={{ flex: 1, background: "#ef4444" }} 
+                onClick={handleDeleteConfirmed} 
+                disabled={submitting}
+              >
+                {submitting ? "Изтриване..." : "Да, изтрий"}
+              </button>
+            </div>
           </div>
         </div>
       )}

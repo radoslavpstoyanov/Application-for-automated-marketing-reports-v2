@@ -9,6 +9,7 @@ import { Toast } from "@/components/Toast";
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [shakeFields, setShakeFields] = useState<{ email?: boolean; password?: boolean }>({});
   const [loading, setLoading] = useState(false);
@@ -43,9 +44,11 @@ export default function LoginPage() {
     }
 
     try {
+      // We pass rememberMe so it can be handled in the authorize callback and stored in JWT.
       const res = await signIn("credentials", {
         email,
         password,
+        rememberMe: rememberMe.toString(),
         redirect: false,
       });
 
@@ -53,6 +56,15 @@ export default function LoginPage() {
         setError("Невалиден имейл или парола");
         setShakeFields({ email: true, password: true });
       } else {
+        if (!rememberMe) {
+          // Initialize heartbeat cookie before redirect so middleware sees it immediately
+          document.cookie = "vectory-heartbeat=1; path=/; max-age=15";
+          // Clear any legacy cookie just in case
+          document.cookie = "vectory-session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        } else {
+          document.cookie = "vectory-heartbeat=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+          document.cookie = "vectory-session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        }
         router.push("/dashboard");
       }
     } catch (err) {
@@ -116,9 +128,22 @@ export default function LoginPage() {
               }}
             />
           </div>
+          
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "-0.5rem" }}>
+            <input 
+              type="checkbox" 
+              id="rememberMe" 
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              style={{ width: "auto", margin: 0, cursor: "pointer" }}
+            />
+            <label htmlFor="rememberMe" style={{ fontSize: "0.85rem", color: "var(--muted-foreground)", cursor: "pointer" }}>
+              Запомни ме
+            </label>
+          </div>
 
           <button type="submit" className="primary" disabled={loading} style={{ marginTop: "0.5rem" }}>
-            {loading ? "Влизане..." : "Влез"}
+            {loading ? "Влизане..." : "ВЛЕЗ"}
           </button>
         </form>
 

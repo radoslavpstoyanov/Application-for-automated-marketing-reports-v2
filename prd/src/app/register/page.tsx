@@ -9,8 +9,9 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
-  const [shakeFields, setShakeFields] = useState<{ name?: boolean; email?: boolean; password?: boolean }>({});
+  const [shakeFields, setShakeFields] = useState<{ name?: boolean; email?: boolean; password?: boolean; confirmPassword?: boolean }>({});
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -22,15 +23,23 @@ export default function RegisterPage() {
 
     // Basic validation
     let hasError = false;
-    const newShakeFields: { name?: boolean; email?: boolean; password?: boolean } = {};
+    const newShakeFields: { name?: boolean; email?: boolean; password?: boolean; confirmPassword?: boolean } = {};
 
     if (!name) { newShakeFields.name = true; hasError = true; }
     if (!email) { newShakeFields.email = true; hasError = true; }
     if (!password) { newShakeFields.password = true; hasError = true; }
+    if (!confirmPassword) { newShakeFields.confirmPassword = true; hasError = true; }
 
     if (hasError) {
       setShakeFields(newShakeFields);
       setError("Моля, попълнете всички полета");
+      setLoading(false);
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setShakeFields({ password: true, confirmPassword: true });
+      setError("Паролите не съвпадат");
       setLoading(false);
       return;
     }
@@ -45,13 +54,13 @@ export default function RegisterPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Something went wrong");
+        throw new Error(data.error || "Възникна грешка");
       }
 
       router.push("/login?registered=true");
     } catch (err: any) {
       setError(err.message);
-      setShakeFields({ name: true, email: true, password: true });
+      setShakeFields({ name: true, email: true, password: true, confirmPassword: true });
     } finally {
       setLoading(false);
     }
@@ -108,8 +117,22 @@ export default function RegisterPage() {
             />
           </div>
 
+          <div>
+            <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.85rem" }}>Потвърди парола</label>
+            <input
+              type="password"
+              placeholder="••••••••"
+              className={shakeFields.confirmPassword ? "shake" : ""}
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                if (shakeFields.confirmPassword) setShakeFields(prev => ({ ...prev, confirmPassword: false }));
+              }}
+            />
+          </div>
+
           <button type="submit" className="primary" disabled={loading} style={{ marginTop: "0.5rem" }}>
-            {loading ? "Създаване..." : "Регистрирай се"}
+            {loading ? "Създаване..." : "РЕГИСТРИРАЙ СЕ"}
           </button>
         </form>
 
