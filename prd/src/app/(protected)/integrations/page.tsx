@@ -6,18 +6,38 @@ import IntegrationsClient from "./IntegrationsClient";
 
 const prisma = new PrismaClient();
 
-export default async function IntegrationsPage() {
+interface Props {
+  searchParams: Promise<{ success?: string; error?: string }>;
+}
+
+export default async function IntegrationsPage({ searchParams }: Props) {
   const session = await getServerSession(authOptions);
-  
+
   if (!session) {
     redirect("/login");
   }
 
+  const { success, error } = await searchParams;
   const userId = (session.user as any).id;
 
-  const connections = await prisma.oAuthConnection.findMany({
-    where: { userId }
+  const raw = await prisma.oAuthConnection.findMany({
+    where: { userId },
+    select: { id: true, provider: true, connectionStatus: true, tokenExpiresAt: true },
   });
 
-  return <IntegrationsClient connections={connections} />;
+  // Serialize dates so the client component receives plain JSON
+  const connections = raw.map((c) => ({
+    id: c.id,
+    provider: c.provider,
+    connectionStatus: c.connectionStatus,
+    tokenExpiresAt: c.tokenExpiresAt?.toISOString() ?? null,
+  }));
+
+  return (
+    <IntegrationsClient
+      connections={connections}
+      successParam={success}
+      errorParam={error}
+    />
+  );
 }
