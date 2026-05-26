@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 
 const prisma = new PrismaClient();
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
@@ -13,7 +13,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   try {
-    const { id } = params;
+    const { id } = await params;
 
     const originalProject = await prisma.project.findFirst({
       where: { id, userId: (session.user as any).id },
@@ -42,6 +42,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
             oauthConnectionId: source.oauthConnectionId,
             externalAccountId: source.externalAccountId,
             externalAccountName: source.externalAccountName,
+            primaryConversion: source.primaryConversion,
             isEnabled: source.isEnabled
           }))
         }

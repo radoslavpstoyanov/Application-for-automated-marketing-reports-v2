@@ -59,15 +59,16 @@ model ProjectSource {
   id                  String          @id @default(cuid())
   projectId           String
   sourceType          String          // "gsc", "ga4", "google_ads", "meta_ads"
-  oauthConnectionId   String
+  oauthConnectionId   String?
   externalAccountId   String
   externalAccountName String?
+  primaryConversion   String?
   isEnabled           Boolean         @default(true)
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
   project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  oauthConnection OAuthConnection @relation(fields: [oauthConnectionId], references: [id])
+  oauthConnection OAuthConnection? @relation(fields: [oauthConnectionId], references: [id])
 }
 
 model ProjectNote {

@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 
 const prisma = new PrismaClient();
 
-export async function DELETE(req: Request, { params }: { params: { provider: string } }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ provider: string }> }) {
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
@@ -13,7 +13,8 @@ export async function DELETE(req: Request, { params }: { params: { provider: str
     }
 
     const userId = (session.user as any).id;
-    const provider = params.provider; // "google" or "meta"
+    const { provider } = await params; // "google" or "meta"
+
 
     if (provider !== "google" && provider !== "meta") {
       return NextResponse.json({ error: "Invalid provider" }, { status: 400 });

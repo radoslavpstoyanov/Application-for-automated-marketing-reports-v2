@@ -32,6 +32,7 @@ interface MetaAdAccount {
 interface GoogleAccounts {
   ga4Properties: GA4Property[];
   gscSites: GSCSite[];
+  warnings?: string[];
 }
 
 interface MetaAccounts {
@@ -87,11 +88,17 @@ export default function IntegrationsClient({
     setLoadingGoogle(true);
     try {
       const res = await fetch("/api/data/google/accounts");
+      const data = await res.json();
       if (res.ok) {
-        setGoogleAccounts(await res.json());
+        setGoogleAccounts(data);
+        if (data.warnings?.length) {
+          setError(data.warnings.join(" "));
+        }
+      } else {
+        throw new Error(data.error || "Неуспешно зареждане на Google акаунтите.");
       }
-    } catch {
-      // silently ignore — just won't show accounts
+    } catch (err: any) {
+      setError(err.message || "Неуспешно зареждане на Google акаунтите.");
     } finally {
       setLoadingGoogle(false);
     }
@@ -101,11 +108,14 @@ export default function IntegrationsClient({
     setLoadingMeta(true);
     try {
       const res = await fetch("/api/data/meta/accounts");
+      const data = await res.json();
       if (res.ok) {
-        setMetaAccounts(await res.json());
+        setMetaAccounts(data);
+      } else {
+        throw new Error(data.error || "Неуспешно зареждане на Meta акаунтите.");
       }
-    } catch {
-      // silently ignore
+    } catch (err: any) {
+      setError(err.message || "Неуспешно зареждане на Meta акаунтите.");
     } finally {
       setLoadingMeta(false);
     }

@@ -5,6 +5,15 @@ import { NextResponse } from "next/server";
 
 const prisma = new PrismaClient();
 
+interface PropertySummary {
+  property?: string;
+  displayName?: string;
+}
+
+interface AccountSummary {
+  propertySummaries?: PropertySummary[];
+}
+
 async function refreshGoogleToken(connection: { id: string; refreshToken: string | null }) {
   if (!connection.refreshToken) return null;
 
@@ -65,27 +74,55 @@ export async function GET() {
   const headers = { Authorization: `Bearer ${accessToken}` };
 
   try {
-    // Fetch GA4 properties from Analytics Admin API
-    const ga4Res = await fetch(
-      "https://analyticsadmin.googleapis.com/v1beta/properties?filter=parent:accounts/~all&pageSize=100",
-      { headers }
-    );
-    const ga4Data = await ga4Res.json();
+    const warnings: string[] = [];
+    const properties = new Map<string, { id: string; name: string; websiteUrl: null }>();
+    let pageToken = "";
 
-    // Fetch Search Console sites
+    do {
+      const params = new URLSearchParams({ pageSize: "200" });
+      if (pageToken) params.set("pageToken", pageToken);
+
+      const ga4Res = await fetch(
+        `https://analyticsadmin.googleapis.com/v1beta/accountSummaries?${params.toString()}`,
+        { headers }
+      );
+      const ga4Data = await ga4Res.json();
+
+      if (!ga4Res.ok) {
+        console.error("Google Analytics Admin API error:", ga4Data);
+        warnings.push("Не можахме да заредим GA4 пропъртитата. Проверете дали Google Analytics Admin API е активиран и дали акаунтът има достъп.");
+        break;
+      }
+
+      for (const account of (ga4Data.accountSummaries ?? []) as AccountSummary[]) {
+        for (const property of account.propertySummaries ?? []) {
+          if (property.property) {
+            properties.set(property.property, {
+              id: property.property,
+              name: property.displayName ?? property.property,
+              websiteUrl: null,
+            });
+          }
+        }
+      }
+
+      pageToken = ga4Data.nextPageToken ?? "";
+    } while (pageToken);
+
     const gscRes = await fetch("https://www.googleapis.com/webmasters/v3/sites", { headers });
     const gscData = await gscRes.json();
+    if (!gscRes.ok) {
+      console.error("Google Search Console API error:", gscData);
+      warnings.push("Не можахме да заредим Search Console сайтовете. Проверете дали Search Console API е активиран и дали акаунтът има достъп.");
+    }
 
     return NextResponse.json({
-      ga4Properties: (ga4Data.properties ?? []).map((p: any) => ({
-        id: p.name,          // e.g. "properties/123456789"
-        name: p.displayName,
-        websiteUrl: p.websiteUri ?? null,
-      })),
-      gscSites: (gscData.siteEntry ?? []).map((s: any) => ({
+      ga4Properties: Array.from(properties.values()),
+      gscSites: (gscRes.ok ? (gscData.siteEntry ?? []) : []).map((s: any) => ({
         siteUrl: s.siteUrl,
         permissionLevel: s.permissionLevel,
       })),
+      warnings,
     });
   } catch (err) {
     console.error("Google accounts fetch error:", err);

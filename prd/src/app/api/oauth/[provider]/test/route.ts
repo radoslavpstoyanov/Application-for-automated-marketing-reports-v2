@@ -2,14 +2,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
-export async function POST(req: Request, { params }: { params: { provider: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> }) {
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const provider = params.provider; // "google" or "meta"
+    const { provider } = await params; // "google" or "meta"
     if (provider !== "google" && provider !== "meta") {
       return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
     }

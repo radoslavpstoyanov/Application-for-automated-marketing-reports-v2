@@ -286,7 +286,7 @@ export default function DashboardClient({ session }: { session: Session }) {
           <div className="glass" style={{ width: "100%", maxWidth: "450px", padding: "2.5rem", borderRadius: "1.5rem" }}>
             <h2 style={{ marginBottom: "0.5rem", color: "#ef4444" }}>Изтриване на проект</h2>
             <p style={{ color: "var(--muted-foreground)", marginBottom: "2rem", fontSize: "0.9rem" }}>
-              Сигурни ли сте, че искате да изтриете проекта <strong>"{selectedProject?.projectName}"</strong>? Това действие е необратимо.
+              Сигурни ли сте, че искате да изтриете проекта <strong>&quot;{selectedProject?.projectName}&quot;</strong>? Това действие е необратимо.
             </p>
             
             <div style={{ display: "flex", gap: "1rem" }}>
