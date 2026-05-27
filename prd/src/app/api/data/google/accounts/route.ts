@@ -43,7 +43,7 @@ async function refreshGoogleToken(connection: { id: string; refreshToken: string
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
   }
 
   const userId = (session.user as any).id;
@@ -52,7 +52,7 @@ export async function GET() {
   });
 
   if (!connection) {
-    return NextResponse.json({ error: "Not connected to Google" }, { status: 404 });
+    return NextResponse.json({ error: "Няма свързан Google акаунт." }, { status: 404 });
   }
 
   // Auto-refresh token if expired
@@ -67,7 +67,7 @@ export async function GET() {
         where: { id: connection.id },
         data: { connectionStatus: "expired" },
       });
-      return NextResponse.json({ error: "Token expired, please reconnect" }, { status: 401 });
+      return NextResponse.json({ error: "Google връзката е изтекла. Свържете акаунта отново." }, { status: 401 });
     }
   }
 
@@ -126,6 +126,6 @@ export async function GET() {
     });
   } catch (err) {
     console.error("Google accounts fetch error:", err);
-    return NextResponse.json({ error: "Failed to fetch accounts" }, { status: 500 });
+    return NextResponse.json({ error: "Google акаунтите не могат да бъдат заредени в момента." }, { status: 500 });
   }
 }

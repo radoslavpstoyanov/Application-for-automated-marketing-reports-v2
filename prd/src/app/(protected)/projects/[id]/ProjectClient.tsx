@@ -69,7 +69,7 @@ interface GscTrendPoint {
 
 const SearchConsoleChart = ({ accentColor, trend }: { accentColor: string; trend: GscTrendPoint[] }) => {
   if (trend.length === 0) {
-    return <p style={{ color: "#64748b", fontSize: "0.85rem" }}>Няма данни за избрания период.</p>;
+    return <p className="empty-data-notice">Няма налични данни за избрания период.</p>;
   }
 
   const maxClicks = Math.max(...trend.map((point) => point.clicks), 1);
@@ -108,7 +108,7 @@ interface Ga4Channel {
 
 const AnalyticsChart = ({ accentColor, channels }: { accentColor: string; channels: Ga4Channel[] }) => {
   if (channels.length === 0) {
-    return <p style={{ color: "#64748b", fontSize: "0.85rem" }}>Няма данни за избрания период.</p>;
+    return <p className="empty-data-notice">Няма налични данни за избрания период.</p>;
   }
 
   const maxSessions = Math.max(...channels.map((channel) => channel.sessions), 1);
@@ -148,7 +148,7 @@ const formatTrendDate = (date: string) => {
 
 const MetricTrendChart = ({ accentColor, points }: { accentColor: string; points: MetricTrendPoint[] }) => {
   if (points.length === 0) {
-    return <p style={{ color: "#64748b", fontSize: "0.85rem" }}>Няма данни за избрания период.</p>;
+    return <p className="empty-data-notice">Няма налични данни за избрания период.</p>;
   }
 
   const maxValue = Math.max(...points.map((point) => point.value), 1);
@@ -258,6 +258,8 @@ interface PreviewSnapshot {
   notes: ProjectNote[];
 }
 
+type ValidationErrors = Record<string, string>;
+
 export default function ProjectClient({ project, sources: initialSources, notes: initialNotes, oauthConnections }: Props) {
   const router = useRouter();
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -265,7 +267,9 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   const isMetaConnected = oauthConnections.some(c => c.provider === "meta" && c.connectionStatus === "active");
   const [projectName, setProjectName] = useState(project.projectName);
   const [pdfTitle, setPdfTitle] = useState(project.pdfTitle || "Маркетинг Отчет");
-  const [selectedTheme, setSelectedTheme] = useState(project.selectedTheme || "Lead Group");
+  const [selectedTheme, setSelectedTheme] = useState(
+    project.selectedTheme && REPORT_THEMES[project.selectedTheme] ? project.selectedTheme : "Lead Group"
+  );
   const [clientLogoUrl, setClientLogoUrl] = useState<string | null>(project.clientLogoUrl);
   
   // Date states
@@ -315,6 +319,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
 
   // UI state
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isPdfDownloading, setIsPdfDownloading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -323,6 +328,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   const [previewSignature, setPreviewSignature] = useState<string | null>(null);
   const [toastError, setToastError] = useState("");
   const [toastSuccess, setToastSuccess] = useState("");
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
   const [googleAccounts, setGoogleAccounts] = useState<{ ga4: { id: string; name: string }[]; gsc: { url: string }[] }>({
     ga4: [],
@@ -367,7 +373,16 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     }
   }, [isGoogleConnected, isMetaConnected]);
 
+  const clearValidationErrors = (...keys: string[]) => {
+    setValidationErrors((current) => {
+      const next = { ...current };
+      keys.forEach((key) => delete next[key]);
+      return next;
+    });
+  };
+
   const handleSourceCheckboxChange = (type: string, isChecked: boolean) => {
+    clearValidationErrors("sources", `${type}.account`, `${type}.conversion`);
     setActiveSources(prev => {
       const idx = prev.findIndex(s => s.sourceType === type);
       if (idx !== -1) {
@@ -382,6 +397,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   };
 
   const handleSourceSelectChange = (type: string, id: string, name: string) => {
+    clearValidationErrors(`${type}.account`);
     setActiveSources(prev => {
       const idx = prev.findIndex(s => s.sourceType === type);
       if (idx !== -1) {
@@ -397,6 +413,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   };
 
   const handlePrimaryConversionChange = (type: string, conversion: string) => {
+    clearValidationErrors(`${type}.conversion`);
     setActiveSources(prev => prev.map(source =>
       source.sourceType === type ? { ...source, primaryConversion: conversion || null } : source
     ));
@@ -426,6 +443,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   });
 
   const handleSave = async () => {
+    setIsSaving(true);
     try {
       const res = await fetch(`/api/projects/${project.id}`, {
         method: "PATCH",
@@ -452,39 +470,45 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       }
     } catch (err: any) {
       setToastError(err.message || "Грешка при запис.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleGeneratePreview = async () => {
-    // Validations
-    if (!reportingStart || !reportingEnd) {
-      setToastError("Моля, изберете основен период на отчитане.");
-      return;
+    const errors: ValidationErrors = {};
+    if (!selectedTheme) {
+      errors.theme = "Моля, изберете бранд тема.";
     }
-    if (reportingStart > reportingEnd) {
-      setToastError("Началната дата на отчета трябва да е преди крайната дата.");
-      return;
+    if (!reportingStart || !reportingEnd) {
+      if (!reportingStart) errors.reportingStart = "Моля, изберете начална дата.";
+      if (!reportingEnd) errors.reportingEnd = "Моля, изберете крайна дата.";
+    }
+    if (reportingStart && reportingEnd && reportingStart > reportingEnd) {
+      errors.reportingEnd = "Крайната дата трябва да бъде след началната дата.";
     }
     if (!!comparisonStart !== !!comparisonEnd) {
-      setToastError("Моля, попълнете и двете дати за сравнителния период.");
-      return;
+      if (!comparisonStart) errors.comparisonStart = "Попълнете началната дата за сравнението.";
+      if (!comparisonEnd) errors.comparisonEnd = "Попълнете крайната дата за сравнението.";
     }
     if (comparisonStart && comparisonEnd && comparisonStart > comparisonEnd) {
-      setToastError("Началната дата на сравнението трябва да е преди крайната дата.");
-      return;
+      errors.comparisonEnd = "Крайната сравнителна дата трябва да бъде след началната.";
     }
-    
-    // Check conversions / properties validation
-    for (const src of activeSources) {
-      if (src.isEnabled && !src.externalAccountId) {
-        setToastError(`Моля, изберете акаунт/собственост за активния източник: ${src.sourceType.toUpperCase()}`);
-        return;
+
+    const enabledSources = activeSources.filter((source) => source.isEnabled);
+    if (enabledSources.length === 0) {
+      errors.sources = "Активирайте поне един източник на данни.";
+    }
+    for (const src of enabledSources) {
+      if (!src.externalAccountId) {
+        errors[`${src.sourceType}.account`] = "Моля, изберете акаунт.";
       }
-      if (src.isEnabled && ["ga4", "google_ads", "meta_ads"].includes(src.sourceType) && !src.primaryConversion) {
-        setToastError(`Моля, изберете основна конверсия за активния източник: ${src.sourceType.toUpperCase()}`);
-        return;
+      if (["ga4", "google_ads", "meta_ads"].includes(src.sourceType) && !src.primaryConversion) {
+        errors[`${src.sourceType}.conversion`] = "Моля, изберете основна конверсия.";
       }
     }
+    setValidationErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     setIsPreviewLoading(true);
     setShowPreview(false);
@@ -511,10 +535,6 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       setPreviewSnapshot(snapshot);
       setPreviewSignature(JSON.stringify(snapshot));
       setShowPreview(true);
-      const sourceErrors = Object.values(data.errors ?? {}).filter(Boolean) as string[];
-      if (sourceErrors.length > 0) {
-        setToastError(sourceErrors.join(" "));
-      }
       document.getElementById("preview-anchor")?.scrollIntoView({ behavior: "smooth" });
     } catch (err: any) {
       setToastError(err.message || "Неуспешно генериране на преглед.");
@@ -654,6 +674,23 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     reportSnapshot.sources.find((source) => source.sourceType === type)?.[field] ?? "";
   const reportGetNoteText = (type: string) =>
     reportSnapshot.notes.find((note) => note.noteType === type)?.noteText ?? "";
+  const gscHasData = !!previewData.gsc && (
+    previewData.gsc.trend.length > 0 ||
+    previewData.gsc.topQueries.length > 0 ||
+    previewData.gsc.topPages.length > 0 ||
+    Object.values(previewData.gsc.kpis).some((value) => value !== 0)
+  );
+  const ga4HasData = !!previewData.ga4 && (
+    previewData.ga4.trend.length > 0 ||
+    previewData.ga4.channels.length > 0 ||
+    previewData.ga4.landingPages.length > 0 ||
+    Object.values(previewData.ga4.kpis).some((value) => value !== 0)
+  );
+  const metaHasData = !!previewData.meta_ads && (
+    previewData.meta_ads.trend.length > 0 ||
+    previewData.meta_ads.campaigns.length > 0 ||
+    Object.values(previewData.meta_ads.kpis).some((value) => value !== 0)
+  );
   const scrollToPreviewSection = (sectionId: string) => {
     document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -674,6 +711,13 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       </div>
     );
   };
+  const InlineError = ({ field }: { field: string }) => validationErrors[field] ? (
+    <p className="field-error" role="alert">{validationErrors[field]}</p>
+  ) : null;
+  const validationBorder = (field: string) => validationErrors[field] ? "#dc2626" : "var(--border)";
+  const EmptyDataNotice = () => (
+    <p className="empty-data-notice">Няма налични данни за избрания период.</p>
+  );
 
   return (
     <div style={{ paddingBottom: "6rem" }}>
@@ -831,6 +875,22 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           background: rgba(67, 179, 112, 0.08);
           box-shadow: 0 0 0 3px rgba(67, 179, 112, 0.12);
         }
+        .field-error {
+          color: #b91c1c;
+          font-size: 0.78rem;
+          font-weight: 600;
+          line-height: 1.35;
+          margin: 0.4rem 0 0;
+        }
+        .empty-data-notice {
+          background: #f8fafc;
+          border: 1px dashed #cbd5e1;
+          border-radius: 0.5rem;
+          color: #64748b;
+          font-size: 0.85rem;
+          margin: 0;
+          padding: 0.85rem 1rem;
+        }
       `}</style>
 
       {/* Main Title Section */}
@@ -866,8 +926,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           <button className="danger" onClick={() => setIsDeleting(true)}>
             Изтрий
           </button>
-          <button className="primary" onClick={handleSave}>
-            Запиши
+          <button className="primary" onClick={handleSave} disabled={isSaving}>
+            {isSaving ? "Записване..." : "Запиши"}
           </button>
         </div>
       </header>
@@ -902,12 +962,14 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                   </label>
                   <select
                     value={selectedTheme}
-                    onChange={(e) => setSelectedTheme(e.target.value)}
-                    style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)" }}
+                    onChange={(e) => { setSelectedTheme(e.target.value); clearValidationErrors("theme"); }}
+                    style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("theme")}`, background: "var(--background)", color: "var(--foreground)" }}
                   >
+                    <option value="">-- Изберете тема --</option>
                     <option value="Lead Group">Lead Group (Зелена палитра)</option>
                     <option value="Vectory Design">Vectory (Синя палитра)</option>
                   </select>
+                  <InlineError field="theme" />
                 </div>
 
                 <div>
@@ -970,10 +1032,11 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     type="date"
                     min="2000-01-01"
                     value={reportingStart}
-                    onChange={(e) => setReportingStart(e.target.value)}
+                    onChange={(e) => { setReportingStart(e.target.value); clearValidationErrors("reportingStart", "reportingEnd"); }}
                     onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                    style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
+                    style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("reportingStart")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
                   />
+                  <InlineError field="reportingStart" />
                 </div>
                 <div>
                   <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.5rem", fontWeight: "600" }}>
@@ -983,10 +1046,11 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     type="date"
                     min="2000-01-01"
                     value={reportingEnd}
-                    onChange={(e) => setReportingEnd(e.target.value)}
+                    onChange={(e) => { setReportingEnd(e.target.value); clearValidationErrors("reportingStart", "reportingEnd"); }}
                     onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                    style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
+                    style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("reportingEnd")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
                   />
+                  <InlineError field="reportingEnd" />
                 </div>
               </div>
 
@@ -1009,12 +1073,13 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       type="date"
                       min="2000-01-01"
                       value={comparisonStart}
-                      onChange={(e) => setComparisonStart(e.target.value)}
+                      onChange={(e) => { setComparisonStart(e.target.value); clearValidationErrors("comparisonStart", "comparisonEnd"); }}
                       onFocus={() => setIsComparisonFocused(true)}
                       onBlur={() => setIsComparisonFocused(false)}
                       onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
+                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("comparisonStart")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
                     />
+                    <InlineError field="comparisonStart" />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.5rem", fontWeight: "600" }}>
@@ -1024,12 +1089,13 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       type="date"
                       min="2000-01-01"
                       value={comparisonEnd}
-                      onChange={(e) => setComparisonEnd(e.target.value)}
+                      onChange={(e) => { setComparisonEnd(e.target.value); clearValidationErrors("comparisonStart", "comparisonEnd"); }}
                       onFocus={() => setIsComparisonFocused(true)}
                       onBlur={() => setIsComparisonFocused(false)}
                       onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
+                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("comparisonEnd")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
                     />
+                    <InlineError field="comparisonEnd" />
                   </div>
                 </div>
               </div>
@@ -1039,8 +1105,9 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           {/* Section 3: Data Sources Configuration */}
           <div className="glass" style={{ padding: "2rem", borderRadius: "1rem" }}>
             <h3 style={{ fontSize: "1.25rem", marginBottom: "1.5rem", fontWeight: "700" }}>3. Източници на данни</h3>
+            <InlineError field="sources" />
             
-            <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", marginTop: validationErrors.sources ? "1rem" : 0 }}>
               {/* Google Search Console */}
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                 <div 
@@ -1061,13 +1128,14 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         const opt = googleAccounts.gsc.find(o => o.url === e.target.value);
                         handleSourceSelectChange("gsc", e.target.value, opt?.url || "");
                       }}
-                      style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)" }}
+                      style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("gsc.account")}`, background: "var(--background)", color: "var(--foreground)" }}
                     >
                       <option value="">-- Изберете сайт --</option>
                       {googleAccounts.gsc.map(o => (
                         <option key={o.url} value={o.url}>{o.url}</option>
                       ))}
                     </select>
+                    <InlineError field="gsc.account" />
                   </div>
                 )}
               </div>
@@ -1093,13 +1161,14 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                           const opt = googleAccounts.ga4.find(o => o.id === e.target.value);
                           handleSourceSelectChange("ga4", e.target.value, opt?.name || "");
                         }}
-                        style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)" }}
+                        style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("ga4.account")}`, background: "var(--background)", color: "var(--foreground)" }}
                       >
                         <option value="">-- Изберете GA4 --</option>
                         {googleAccounts.ga4.map(o => (
                           <option key={o.id} value={o.id}>{o.name}</option>
                         ))}
                       </select>
+                      <InlineError field="ga4.account" />
                     </div>
 
                     <div>
@@ -1111,8 +1180,9 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         value={getPrimaryConversion("ga4")}
                         onChange={(e) => handlePrimaryConversionChange("ga4", e.target.value)}
                         placeholder="напр. generate_lead"
-                        style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)" }}
+                        style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("ga4.conversion")}`, background: "var(--background)", color: "var(--foreground)" }}
                       />
+                      <InlineError field="ga4.conversion" />
                       <datalist id="ga4-conversion-options">
                         <option value="generate_lead" />
                         <option value="purchase" />
@@ -1142,8 +1212,9 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         value={getSourceField("google_ads", "externalAccountId")}
                         onChange={(e) => handleSourceSelectChange("google_ads", e.target.value, e.target.value)}
                         placeholder="123-456-7890"
-                        style={{ padding: "0.6rem" }}
+                        style={{ padding: "0.6rem", border: `1px solid ${validationBorder("google_ads.account")}` }}
                       />
+                      <InlineError field="google_ads.account" />
                     </div>
                     <div>
                       <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.4rem", color: "var(--muted-foreground)" }}>
@@ -1153,8 +1224,9 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         value={getPrimaryConversion("google_ads")}
                         onChange={(e) => handlePrimaryConversionChange("google_ads", e.target.value)}
                         placeholder="Lead form submit"
-                        style={{ padding: "0.6rem" }}
+                        style={{ padding: "0.6rem", border: `1px solid ${validationBorder("google_ads.conversion")}` }}
                       />
+                      <InlineError field="google_ads.conversion" />
                     </div>
                   </div>
                 )}
@@ -1177,17 +1249,18 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       </label>
                       <select
                         value={getSourceField("meta_ads", "externalAccountId")}
-                        onChange={(e) => {
+                      onChange={(e) => {
                           const opt = metaAccounts.find(o => o.id === e.target.value);
                           handleSourceSelectChange("meta_ads", e.target.value, opt?.name || "");
                         }}
-                        style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)" }}
+                        style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("meta_ads.account")}`, background: "var(--background)", color: "var(--foreground)" }}
                       >
                         <option value="">-- Изберете акаунт --</option>
                         {metaAccounts.map(o => (
                           <option key={o.id} value={o.id}>{o.name}</option>
                         ))}
                       </select>
+                      <InlineError field="meta_ads.account" />
                     </div>
 
                     <div>
@@ -1199,8 +1272,9 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         value={getPrimaryConversion("meta_ads")}
                         onChange={(e) => handlePrimaryConversionChange("meta_ads", e.target.value)}
                         placeholder="напр. lead"
-                        style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)" }}
+                        style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("meta_ads.conversion")}`, background: "var(--background)", color: "var(--foreground)" }}
                       />
+                      <InlineError field="meta_ads.conversion" />
                       <datalist id="meta-conversion-options">
                         <option value="lead" />
                         <option value="purchase" />
@@ -1379,22 +1453,23 @@ export default function ProjectClient({ project, sources: initialSources, notes:
               {!isPreviewCurrent && <span style={{ color: "#b45309", fontSize: "0.85rem", fontWeight: "700" }}>Preview is outdated</span>}
             </div>
             <button
-              onClick={isPreviewCurrent ? handleDownloadPDF : handleGeneratePreview}
+              onClick={handleDownloadPDF}
               className="primary"
-              disabled={isPdfDownloading || isPreviewLoading}
+              disabled={!isPreviewCurrent || isPdfDownloading || isPreviewLoading}
               style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-              {isPdfDownloading ? "Генериране..." : isPreviewLoading ? "Обновяване..." : isPreviewCurrent ? "Свали отчет" : "Генерирай нов преглед"}
+              {isPdfDownloading ? "Генериране..." : "Свали отчет"}
             </button>
           </div>
 
           <nav className="no-print" style={{ position: "sticky", top: "1rem", zIndex: 30, display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.55rem", marginBottom: "1rem", padding: "0.75rem 1rem", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "0.75rem", boxShadow: "0 8px 20px rgba(15, 23, 42, 0.08)" }}>
             <span style={{ marginRight: "0.35rem", color: "#64748b", fontSize: "0.75rem", fontWeight: "700", textTransform: "uppercase" }}>Навигация</span>
             <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-cover")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Корица</button>
-            {reportIsSourceActive("gsc") && previewData.gsc && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-gsc")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Search Console</button>}
-            {reportIsSourceActive("meta_ads") && previewData.meta_ads && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-meta")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Meta Ads</button>}
-            {reportIsSourceActive("ga4") && previewData.ga4 && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-ga4")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>GA4</button>}
+            {reportIsSourceActive("gsc") && (previewData.gsc || previewData.errors.gsc) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-gsc")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Search Console</button>}
+            {reportIsSourceActive("google_ads") && previewData.errors.google_ads && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-google-ads")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Google Ads</button>}
+            {reportIsSourceActive("meta_ads") && (previewData.meta_ads || previewData.errors.meta_ads) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-meta")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Meta Ads</button>}
+            {reportIsSourceActive("ga4") && (previewData.ga4 || previewData.errors.ga4) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-ga4")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>GA4</button>}
             {reportGetNoteText("final") && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-conclusion")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Заключение</button>}
           </nav>
 
@@ -1450,7 +1525,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
             <div style={{ marginTop: "3rem", display: "flex", flexDirection: "column", gap: "3.5rem" }}>
               
               {/* Google Search Console */}
-              {reportIsSourceActive("gsc") && previewData.gsc && (
+              {reportIsSourceActive("gsc") && (previewData.gsc || previewData.errors.gsc) && (
                 <div id="preview-gsc" className="pdf-section" data-pdf-order="1" style={{ pageBreakInside: "avoid", order: 1 }}>
                   <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
                     <span style={{ color: reportThemeAccentColor }}>●</span> Google Search Console ({reportGetSourceField("gsc", "externalAccountId")})
@@ -1461,6 +1536,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
                       {previewData.errors.gsc}
                     </div>
+                  ) : previewData.gsc && !gscHasData ? (
+                    <EmptyDataNotice />
                   ) : previewData.gsc ? (
                     <>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1.5rem", marginBottom: "2rem" }}>
@@ -1506,7 +1583,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                               </tbody>
                             </table>
                           ) : (
-                            <p style={{ color: "#64748b", fontSize: "0.85rem" }}>Няма данни за избрания период.</p>
+                            <EmptyDataNotice />
                           )}
                         </div>
                       </div>
@@ -1534,6 +1611,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                           </table>
                         </div>
                       )}
+                      {previewData.gsc.topPages.length === 0 && <EmptyDataNotice />}
                     </>
                   ) : null}
 
@@ -1542,7 +1620,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
               )}
 
               {/* Google Analytics 4 */}
-              {reportIsSourceActive("ga4") && previewData.ga4 && (
+              {reportIsSourceActive("ga4") && (previewData.ga4 || previewData.errors.ga4) && (
                 <div id="preview-ga4" className="pdf-section" data-pdf-order="4" style={{ pageBreakInside: "avoid", order: 4 }}>
                   <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
                     <span style={{ color: reportThemeAccentColor }}>●</span> Google Analytics 4 ({reportGetSourceField("ga4", "externalAccountName") || reportGetSourceField("ga4", "externalAccountId")})
@@ -1553,6 +1631,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
                       {previewData.errors.ga4}
                     </div>
+                  ) : previewData.ga4 && !ga4HasData ? (
+                    <EmptyDataNotice />
                   ) : previewData.ga4 ? (
                     <>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1.5rem", marginBottom: "2rem" }}>
@@ -1596,7 +1676,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                               ))}
                             </div>
                           ) : (
-                            <p style={{ color: "#64748b", fontSize: "0.85rem" }}>Няма данни за избрания период.</p>
+                            <EmptyDataNotice />
                           )}
                         </div>
                       </div>
@@ -1624,6 +1704,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                           </table>
                         </div>
                       )}
+                      {previewData.ga4.landingPages.length === 0 && <EmptyDataNotice />}
                     </>
                   ) : null}
 
@@ -1631,10 +1712,20 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                 </div>
               )}
 
-              {/* Google Ads is inserted here after its Task 07 data provider is implemented. */}
+              {reportIsSourceActive("google_ads") && previewData.errors.google_ads && (
+                <div id="preview-google-ads" className="pdf-section" data-pdf-order="2" style={{ pageBreakInside: "avoid", order: 2 }}>
+                  <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
+                    <span style={{ color: reportThemeAccentColor }}>●</span> Google Ads ({reportGetSourceField("google_ads", "externalAccountId")})
+                  </h2>
+                  <SectionPeriod />
+                  <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
+                    {previewData.errors.google_ads}
+                  </div>
+                </div>
+              )}
 
               {/* Meta Ads */}
-              {reportIsSourceActive("meta_ads") && previewData.meta_ads && (
+              {reportIsSourceActive("meta_ads") && (previewData.meta_ads || previewData.errors.meta_ads) && (
                 <div id="preview-meta" className="pdf-section" data-pdf-order="3" style={{ pageBreakInside: "avoid", order: 3 }}>
                   <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
                     <span style={{ color: reportThemeAccentColor }}>●</span> Meta (Facebook) Ads ({reportGetSourceField("meta_ads", "externalAccountName")})
@@ -1645,6 +1736,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
                       {previewData.errors.meta_ads}
                     </div>
+                  ) : previewData.meta_ads && !metaHasData ? (
+                    <EmptyDataNotice />
                   ) : previewData.meta_ads ? (
                     <>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1.5rem", marginBottom: "2rem" }}>
@@ -1698,6 +1791,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                           </table>
                         </div>
                       )}
+                      {previewData.meta_ads.campaigns.length === 0 && <EmptyDataNotice />}
                     </>
                   ) : null}
 

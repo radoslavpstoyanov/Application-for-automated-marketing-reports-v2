@@ -6,12 +6,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
     }
 
     const { provider } = await params; // "google" or "meta"
     if (provider !== "google" && provider !== "meta") {
-      return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
+      return NextResponse.json({ error: "Избраната интеграция не се поддържа." }, { status: 400 });
     }
 
     const { accessToken } = await req.json();
@@ -31,6 +31,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     return NextResponse.json({ message: "Успешна връзка с външната услуга!" }, { status: 200 });
   } catch (error) {
     console.error("OAuth test error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Връзката не можа да бъде проверена. Опитайте отново." }, { status: 500 });
   }
 }

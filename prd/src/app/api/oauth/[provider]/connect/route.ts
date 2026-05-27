@@ -9,7 +9,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
     }
 
     const userId = (session.user as any).id;
@@ -17,13 +17,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
 
 
     if (provider !== "google" && provider !== "meta") {
-      return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
+      return NextResponse.json({ error: "Избраната интеграция не се поддържа." }, { status: 400 });
     }
 
     const { accessToken, refreshToken } = await req.json();
 
     if (!accessToken) {
-      return NextResponse.json({ error: "Access token is required" }, { status: 400 });
+      return NextResponse.json({ error: "Въведете токен за достъп." }, { status: 400 });
     }
     
     // Check if it already exists
@@ -55,6 +55,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     return NextResponse.json({ message: "Успешно свързване" }, { status: 200 });
   } catch (error) {
     console.error("OAuth connect error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Интеграцията не можа да бъде свързана. Опитайте отново." }, { status: 500 });
   }
 }

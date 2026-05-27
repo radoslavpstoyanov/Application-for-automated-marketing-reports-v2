@@ -10,7 +10,7 @@ export async function POST(req: Request) {
 
     if (!name || !email || !password) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Моля, попълнете всички задължителни полета." },
         { status: 400 }
       );
     }
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
     if (existingUser) {
       return NextResponse.json(
-        { error: "User already exists" },
+        { error: "Този имейл вече е регистриран." },
         { status: 400 }
       );
     }
@@ -37,13 +37,13 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(
-      { message: "User created successfully", userId: user.id },
+      { message: "Акаунтът е създаден успешно.", userId: user.id },
       { status: 201 }
     );
   } catch (error: any) {
     console.error("Registration error:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Регистрацията не можа да бъде завършена. Опитайте отново." },
       { status: 500 }
     );
   }

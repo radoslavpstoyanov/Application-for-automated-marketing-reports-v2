@@ -9,7 +9,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ provi
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
     }
 
     const userId = (session.user as any).id;
@@ -17,7 +17,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ provi
 
 
     if (provider !== "google" && provider !== "meta") {
-      return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
+      return NextResponse.json({ error: "Избраната интеграция не се поддържа." }, { status: 400 });
     }
 
     await prisma.oAuthConnection.deleteMany({
@@ -30,6 +30,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ provi
     return NextResponse.json({ message: "Connection removed" }, { status: 200 });
   } catch (error) {
     console.error("OAuth disconnect error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Интеграцията не можа да бъде прекъсната. Опитайте отново." }, { status: 500 });
   }
 }

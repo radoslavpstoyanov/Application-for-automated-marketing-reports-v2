@@ -10,19 +10,19 @@ export async function PATCH(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
     }
 
     const userId = (session.user as any).id;
     const { currentPassword, newEmail, newPassword } = await req.json();
 
     if (!currentPassword) {
-      return NextResponse.json({ error: "Current password is required" }, { status: 400 });
+      return NextResponse.json({ error: "Въведете текущата си парола." }, { status: 400 });
     }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.passwordHash) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      return NextResponse.json({ error: "Профилът не е намерен." }, { status: 404 });
     }
 
     const isPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
@@ -55,6 +55,6 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ message: "Профилът е обновен" }, { status: 200 });
   } catch (error) {
     console.error("User update error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Профилът не можа да бъде обновен. Опитайте отново." }, { status: 500 });
   }
 }

@@ -9,7 +9,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
   }
 
   try {
@@ -23,7 +23,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
 
     if (!originalProject) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+      return NextResponse.json({ error: "Проектът не е намерен." }, { status: 404 });
     }
 
     // Create duplicate project
@@ -53,6 +53,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json(duplicate);
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Проектът не можа да бъде дублиран. Опитайте отново." }, { status: 500 });
   }
 }

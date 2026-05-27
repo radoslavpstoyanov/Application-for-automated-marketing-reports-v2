@@ -32,6 +32,18 @@ interface MetricChange {
   percent: number | null;
 }
 
+function sourceFeedback(sourceType: SourceType, message?: string) {
+  if (message && /връзката|интеграция|Свържете/.test(message)) return message;
+
+  const labels: Record<SourceType, string> = {
+    gsc: "Google Search Console",
+    ga4: "Google Analytics 4",
+    google_ads: "Google Ads",
+    meta_ads: "Meta Ads",
+  };
+  return `Данните от ${labels[sourceType]} не могат да бъдат заредени в момента. Проверете връзката и опитайте отново.`;
+}
+
 interface SearchAnalyticsRow {
   keys?: string[];
   clicks?: number;
@@ -376,12 +388,12 @@ async function fetchMetaData(token: string, source: SourceInput, period: Period,
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user) return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
 
   const { id } = await params;
   const userId = (session.user as any).id as string;
   const project = await prisma.project.findFirst({ where: { id, userId }, select: { id: true } });
-  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (!project) return NextResponse.json({ error: "Проектът не е намерен." }, { status: 404 });
 
   const body = (await req.json()) as PreviewInput;
   if (!body.reportingStart || !body.reportingEnd) {
@@ -398,6 +410,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const sources = (body.sources ?? []).filter((source) => source.isEnabled);
+  if (sources.length === 0) {
+    return NextResponse.json({ error: "Активирайте поне един източник на данни." }, { status: 400 });
+  }
+  const unconfiguredSource = sources.find((source) => !source.externalAccountId);
+  if (unconfiguredSource) {
+    return NextResponse.json({ error: "Моля, изберете акаунт за всеки активен източник." }, { status: 400 });
+  }
   const conversionSource = sources.find(
     (source) => ["ga4", "google_ads", "meta_ads"].includes(source.sourceType) && !source.primaryConversion
   );
@@ -423,10 +442,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         metaToken ??= await getProviderToken(userId, "meta");
         result.meta_ads = await fetchMetaData(metaToken, source, period, comparison);
       } else if (source.sourceType === "google_ads") {
-        result.errors.google_ads = "Google Ads reporting изисква Google Ads API developer token и customer конфигурация.";
+        result.errors.google_ads = "Google Ads все още не е настроен за извличане на данни.";
       }
     } catch (error: any) {
-      result.errors[source.sourceType] = error.message || "Неуспешно извличане на данни.";
+      result.errors[source.sourceType] = sourceFeedback(source.sourceType, error.message);
     }
   }));
 

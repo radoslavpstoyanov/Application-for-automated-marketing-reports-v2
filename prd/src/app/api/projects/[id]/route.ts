@@ -27,7 +27,7 @@ export async function PATCH(req: Request, { params }: ProjectPatchProps) {
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
   }
 
   try {
@@ -41,7 +41,7 @@ export async function PATCH(req: Request, { params }: ProjectPatchProps) {
     });
 
     if (!existingProject) {
-      return NextResponse.json({ error: "Project not found or unauthorized" }, { status: 404 });
+      return NextResponse.json({ error: "Проектът не е намерен." }, { status: 404 });
     }
 
     const {
@@ -77,7 +77,7 @@ export async function PATCH(req: Request, { params }: ProjectPatchProps) {
       });
 
       if (ownedConnections !== sourceConnectionIds.length) {
-        return NextResponse.json({ error: "Invalid OAuth connection" }, { status: 400 });
+        return NextResponse.json({ error: "Избраната интеграция не е достъпна за този профил." }, { status: 400 });
       }
     }
 
@@ -142,10 +142,10 @@ export async function PATCH(req: Request, { params }: ProjectPatchProps) {
       }
     });
 
-    return NextResponse.json({ message: "Project configuration successfully updated" });
+    return NextResponse.json({ message: "Проектът е записан успешно." });
   } catch (error: any) {
     console.error("Project PATCH error:", error);
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Проектът не можа да бъде записан. Опитайте отново." }, { status: 500 });
   }
 }
 
@@ -153,7 +153,7 @@ export async function DELETE(req: Request, { params }: ProjectPatchProps) {
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
   }
 
   try {
@@ -164,12 +164,12 @@ export async function DELETE(req: Request, { params }: ProjectPatchProps) {
     });
 
     if (result.count === 0) {
-      return NextResponse.json({ error: "Project not found or unauthorized" }, { status: 404 });
+      return NextResponse.json({ error: "Проектът не е намерен." }, { status: 404 });
     }
 
-    return NextResponse.json({ message: "Project deleted" });
+    return NextResponse.json({ message: "Проектът е изтрит." });
   } catch (error) {
     console.error("Project DELETE error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Проектът не можа да бъде изтрит. Опитайте отново." }, { status: 500 });
   }
 }

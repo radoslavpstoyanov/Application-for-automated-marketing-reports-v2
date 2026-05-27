@@ -8,7 +8,7 @@ const prisma = new PrismaClient();
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
   }
 
   const userId = (session.user as any).id;
@@ -17,7 +17,7 @@ export async function GET() {
   });
 
   if (!connection) {
-    return NextResponse.json({ error: "Not connected to Meta" }, { status: 404 });
+    return NextResponse.json({ error: "Няма свързан Meta акаунт." }, { status: 404 });
   }
 
   try {
@@ -27,7 +27,7 @@ export async function GET() {
         where: { id: connection.id },
         data: { connectionStatus: "expired" },
       });
-      return NextResponse.json({ error: "Token expired, please reconnect" }, { status: 401 });
+      return NextResponse.json({ error: "Meta връзката е изтекла. Свържете акаунта отново." }, { status: 401 });
     }
 
     // Fetch Ad Accounts via Graph API
@@ -38,7 +38,7 @@ export async function GET() {
 
     if (data.error) {
       console.error("Meta Graph API error:", data.error);
-      return NextResponse.json({ error: data.error.message }, { status: 400 });
+      return NextResponse.json({ error: "Meta акаунтите не могат да бъдат заредени. Проверете връзката си." }, { status: 400 });
     }
 
     // account_status: 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, etc.
@@ -60,6 +60,6 @@ export async function GET() {
     });
   } catch (err) {
     console.error("Meta accounts fetch error:", err);
-    return NextResponse.json({ error: "Failed to fetch accounts" }, { status: 500 });
+    return NextResponse.json({ error: "Meta акаунтите не могат да бъдат заредени в момента." }, { status: 500 });
   }
 }
