@@ -127,7 +127,7 @@ export default function DashboardClient({ session }: { session: Session }) {
     <div style={{ minHeight: "100vh" }}>
 
 
-      <main className="container" style={{ paddingTop: "4rem", paddingBottom: "4rem" }}>
+      <main className="container" style={{ paddingTop: "3.5rem", paddingBottom: "4rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "3rem" }}>
           <div>
             <h2 style={{ fontSize: "2.2rem", marginBottom: "0.5rem" }}>Проекти</h2>
@@ -194,13 +194,13 @@ export default function DashboardClient({ session }: { session: Session }) {
                       zIndex: 1000, 
                       padding: "0.5rem", 
                       borderRadius: "0.75rem",
-                      boxShadow: "0 10px 30px rgba(0,0,0,0.8)",
-                      border: "1px solid var(--primary)",
-                      background: "#002333"
+                  boxShadow: "var(--shadow-card)",
+                  border: "1px solid var(--border)",
+                  background: "var(--card)"
                     }}>
                       <button 
                         onClick={() => { setSelectedProject(project); setRenameValue(project.projectName); setShowRenameModal(true); setActiveMenu(null); }}
-                        style={{ width: "100%", textAlign: "left", padding: "0.75rem", fontSize: "0.9rem", background: "transparent", color: "white", borderRadius: "0.5rem" }}
+                        style={{ width: "100%", textAlign: "left", padding: "0.75rem", fontSize: "0.9rem", background: "transparent", color: "var(--foreground)", borderRadius: "0.5rem" }}
                         onMouseEnter={(e) => e.currentTarget.style.background = "var(--secondary)"}
                         onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                       >
@@ -208,7 +208,7 @@ export default function DashboardClient({ session }: { session: Session }) {
                       </button>
                       <button 
                         onClick={() => handleDuplicate(project.id)}
-                        style={{ width: "100%", textAlign: "left", padding: "0.75rem", fontSize: "0.9rem", background: "transparent", color: "white", borderRadius: "0.5rem" }}
+                        style={{ width: "100%", textAlign: "left", padding: "0.75rem", fontSize: "0.9rem", background: "transparent", color: "var(--foreground)", borderRadius: "0.5rem" }}
                         onMouseEnter={(e) => e.currentTarget.style.background = "var(--secondary)"}
                         onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                       >
@@ -242,7 +242,7 @@ export default function DashboardClient({ session }: { session: Session }) {
 
       {/* New Project Modal */}
       {showNewModal && (
-        <div className="flex-center" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.8)", zIndex: 2000, backdropFilter: "blur(4px)" }}>
+        <div className="flex-center" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(15, 23, 42, 0.35)", zIndex: 2000, backdropFilter: "blur(4px)" }}>
           <div className="glass" style={{ width: "100%", maxWidth: "450px", padding: "2.5rem", borderRadius: "1.5rem" }}>
             <h2 style={{ marginBottom: "0.5rem" }}>Нов проект</h2>
             <p style={{ color: "var(--muted-foreground)", marginBottom: "2rem", fontSize: "0.9rem" }}>Въведете име за вашия нов маркетингов отчет.</p>
@@ -262,7 +262,7 @@ export default function DashboardClient({ session }: { session: Session }) {
 
       {/* Rename Project Modal */}
       {showRenameModal && (
-        <div className="flex-center" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.8)", zIndex: 2000, backdropFilter: "blur(4px)" }}>
+        <div className="flex-center" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(15, 23, 42, 0.35)", zIndex: 2000, backdropFilter: "blur(4px)" }}>
           <div className="glass" style={{ width: "100%", maxWidth: "450px", padding: "2.5rem", borderRadius: "1.5rem" }}>
             <h2 style={{ marginBottom: "0.5rem" }}>Преименуване</h2>
             <p style={{ color: "var(--muted-foreground)", marginBottom: "2rem", fontSize: "0.9rem" }}>Променете името на проекта.</p>
@@ -282,7 +282,7 @@ export default function DashboardClient({ session }: { session: Session }) {
 
       {/* Custom Delete Confirmation Modal */}
       {showDeleteModal && (
-        <div className="flex-center" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.8)", zIndex: 2000, backdropFilter: "blur(4px)" }}>
+        <div className="flex-center" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(15, 23, 42, 0.35)", zIndex: 2000, backdropFilter: "blur(4px)" }}>
           <div className="glass" style={{ width: "100%", maxWidth: "450px", padding: "2.5rem", borderRadius: "1.5rem" }}>
             <h2 style={{ marginBottom: "0.5rem", color: "#ef4444" }}>Изтриване на проект</h2>
             <p style={{ color: "var(--muted-foreground)", marginBottom: "2rem", fontSize: "0.9rem" }}>
@@ -293,8 +293,8 @@ export default function DashboardClient({ session }: { session: Session }) {
               <button type="button" className="secondary" style={{ flex: 1 }} onClick={() => { setShowDeleteModal(false); setSelectedProject(null); }}>Отказ</button>
               <button 
                 type="button" 
-                className="primary" 
-                style={{ flex: 1, background: "#ef4444" }} 
+                className="danger"
+                style={{ flex: 1 }}
                 onClick={handleDeleteConfirmed} 
                 disabled={submitting}
               >
@@ -308,10 +308,12 @@ export default function DashboardClient({ session }: { session: Session }) {
       <style jsx global>{`
         .project-card:hover {
           border-color: var(--primary) !important;
+          box-shadow: 0 10px 28px rgba(20, 35, 27, 0.08);
+          transform: translateY(-1px);
         }
         .project-card.active {
           border-color: var(--primary) !important;
-          box-shadow: 0 0 15px rgba(0, 223, 154, 0.2);
+          box-shadow: 0 0 0 3px rgba(67, 179, 112, 0.12);
         }
       `}</style>
     </div>

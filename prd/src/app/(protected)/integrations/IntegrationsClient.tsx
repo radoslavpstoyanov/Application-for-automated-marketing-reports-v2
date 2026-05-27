@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Toast } from "@/components/Toast";
 
@@ -78,13 +78,7 @@ export default function IntegrationsClient({
   const isExpired = (provider: string) =>
     connections.some((c) => c.provider === provider && c.connectionStatus === "expired");
 
-  // Fetch accounts once connection is confirmed
-  useEffect(() => {
-    if (isConnected("google")) fetchGoogleAccounts();
-    if (isConnected("meta")) fetchMetaAccounts();
-  }, []);
-
-  const fetchGoogleAccounts = async () => {
+  const fetchGoogleAccounts = useCallback(async () => {
     setLoadingGoogle(true);
     try {
       const res = await fetch("/api/data/google/accounts");
@@ -102,9 +96,9 @@ export default function IntegrationsClient({
     } finally {
       setLoadingGoogle(false);
     }
-  };
+  }, []);
 
-  const fetchMetaAccounts = async () => {
+  const fetchMetaAccounts = useCallback(async () => {
     setLoadingMeta(true);
     try {
       const res = await fetch("/api/data/meta/accounts");
@@ -119,7 +113,13 @@ export default function IntegrationsClient({
     } finally {
       setLoadingMeta(false);
     }
-  };
+  }, []);
+
+  // Fetch account lists when an active provider connection is available.
+  useEffect(() => {
+    if (connections.some((c) => c.provider === "google" && c.connectionStatus === "active")) fetchGoogleAccounts();
+    if (connections.some((c) => c.provider === "meta" && c.connectionStatus === "active")) fetchMetaAccounts();
+  }, [connections, fetchGoogleAccounts, fetchMetaAccounts]);
 
   const handleDisconnect = async (provider: string) => {
     try {
@@ -142,6 +142,8 @@ export default function IntegrationsClient({
     padding: "1.5rem",
     border: "1px solid var(--border)",
     borderRadius: "0.75rem",
+    background: "var(--card)",
+    boxShadow: "var(--shadow-card)",
   };
 
   const headerRowStyle = {
@@ -159,9 +161,9 @@ export default function IntegrationsClient({
         padding: "0.2rem 0.6rem",
         borderRadius: "9999px",
         background: expired
-          ? "rgba(239,68,68,0.15)"
+          ? "rgba(239,68,68,0.1)"
           : connected
-          ? "rgba(0,223,154,0.15)"
+          ? "rgba(67,179,112,0.12)"
           : "rgba(148,163,184,0.15)",
         color: expired ? "#ef4444" : connected ? "var(--primary)" : "var(--muted-foreground)",
         marginTop: "0.25rem",
@@ -223,8 +225,7 @@ export default function IntegrationsClient({
             <div style={{ flexShrink: 0 }}>
               {isConnected("google") ? (
                 <button
-                  className="secondary"
-                  style={{ color: "#ef4444" }}
+                  className="danger"
                   onClick={() => handleDisconnect("google")}
                 >
                   Прекъсни връзката
@@ -320,8 +321,7 @@ export default function IntegrationsClient({
             <div style={{ flexShrink: 0 }}>
               {isConnected("meta") ? (
                 <button
-                  className="secondary"
-                  style={{ color: "#ef4444" }}
+                  className="danger"
                   onClick={() => handleDisconnect("meta")}
                 >
                   Прекъсни връзката

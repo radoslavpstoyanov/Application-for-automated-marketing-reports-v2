@@ -705,17 +705,17 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         }
         .source-toggle-btn:hover {
           border-color: var(--primary);
-          box-shadow: 0 0 10px rgba(0, 223, 154, 0.15);
+          box-shadow: 0 0 0 3px rgba(67, 179, 112, 0.12);
         }
         .source-toggle-btn.active {
           border-color: var(--primary);
-          background: rgba(0, 223, 154, 0.05);
-          box-shadow: 0 0 15px rgba(0, 223, 154, 0.25);
+          background: rgba(67, 179, 112, 0.08);
+          box-shadow: 0 0 0 3px rgba(67, 179, 112, 0.12);
         }
       `}</style>
 
       {/* Main Title Section */}
-      <header className="no-print" style={{ padding: "2rem 4rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)" }}>
+      <header className="no-print" style={{ padding: "2rem 4rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", background: "var(--card)" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <Link href="/dashboard" style={{ color: "var(--muted-foreground)", fontSize: "0.85rem", textDecoration: "none" }}>← Табло</Link>
@@ -744,7 +744,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         
         {/* Top Control Buttons */}
         <div style={{ display: "flex", gap: "0.75rem" }}>
-          <button className="secondary" style={{ color: "#ef4444" }} onClick={() => setIsDeleting(true)}>
+          <button className="danger" onClick={() => setIsDeleting(true)}>
             Изтрий
           </button>
           <button className="primary" onClick={handleSave}>
@@ -1611,7 +1611,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
 
       {/* Delete Confirmation Modal */}
       {isDeleting && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15, 23, 42, 0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(4px)" }}>
           <div className="glass" style={{ padding: "2.5rem", borderRadius: "1rem", maxWidth: "420px", textAlign: "center", boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)" }}>
             <h3 style={{ fontSize: "1.4rem", fontWeight: "700", marginBottom: "1rem" }}>Изтриване на проект</h3>
             <p style={{ color: "var(--muted-foreground)", fontSize: "0.95rem", marginBottom: "2rem" }}>
@@ -1621,7 +1621,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
               <button className="secondary" onClick={() => setIsDeleting(false)}>
                 Отказ
               </button>
-              <button className="primary" style={{ background: "#ef4444" }} onClick={handleDelete}>
+              <button className="danger" onClick={handleDelete}>
                 Да, изтрий проекта
               </button>
             </div>

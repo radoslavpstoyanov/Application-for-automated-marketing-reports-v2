@@ -8,7 +8,7 @@ export default function ProtectedLayout({
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <Sidebar />
-      <div style={{ flex: 1, marginLeft: "260px" }}>
+      <div style={{ flex: 1, marginLeft: "260px", minWidth: 0, background: "var(--background)" }}>
         {children}
       </div>
     </div>

@@ -1,22 +1,26 @@
 :root {
-  --background: #00151f;
-  --foreground: #f0f9ff;
-  --card: #002333;
-  --card-foreground: #f0f9ff;
-  --primary: #00df9a;
-  --primary-foreground: #00151f;
-  --secondary: #00334d;
-  --secondary-foreground: #e0f2fe;
-  --accent: #00df9a;
-  --accent-foreground: #00151f;
-  --muted: #00334d;
-  --muted-foreground: #94a3b8;
-  --border: #003f5c;
-  --input: #001c29;
-  --ring: #00df9a;
-  --radius: 0.75rem;
-
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --background: #ffffff;
+  --foreground: #17211c;
+  --card: #ffffff;
+  --card-foreground: #17211c;
+  --primary: #43b370;
+  --primary-medium: #246346;
+  --primary-dark: #1f5749;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f7f5;
+  --secondary-foreground: #33463c;
+  --accent: #43b370;
+  --accent-foreground: #ffffff;
+  --muted: #f4f7f5;
+  --muted-foreground: #68786f;
+  --border: #e4ebe7;
+  --input: #ffffff;
+  --ring: #43b370;
+  --danger: #dc2626;
+  --danger-background: #fef2f2;
+  --radius: 0.625rem;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.045);
+  --font-sans: 'Inter', 'Segoe UI', Roboto, Arial, system-ui, -apple-system, sans-serif;
 }
 
 * {
@@ -33,34 +37,24 @@ body {
   background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Premium Background Effect based on Vectory/Lead Group style */
 body::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(circle at 20% 20%, rgba(0, 223, 154, 0.03), transparent 40%),
-              radial-gradient(circle at 80% 80%, rgba(0, 51, 84, 0.2), transparent 50%);
-  z-index: -1;
-  pointer-events: none;
+  display: none;
 }
 
-/* Glassmorphism utility */
 .glass {
-  background: rgba(0, 35, 51, 0.8);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--card);
   border: 1px solid var(--border);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-card);
 }
 
 /* Forms */
-input {
+input,
+select,
+textarea {
   width: 100%;
   padding: 0.75rem 1rem;
   background: var(--input);
@@ -71,10 +65,16 @@ input {
   transition: all 0.2s ease;
 }
 
-input:focus {
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(0, 223, 154, 0.2);
+  box-shadow: 0 0 0 3px rgba(67, 179, 112, 0.16);
 }
 
 /* Buttons */
@@ -84,10 +84,9 @@ button {
   border-radius: var(--radius);
   border: none;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 0.9rem;
   transition: all 0.2s ease;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.01em;
 }
 
 button.primary {
@@ -96,8 +95,8 @@ button.primary {
 }
 
 button.primary:hover {
-  filter: brightness(1.1);
-  box-shadow: 0 0 20px rgba(0, 223, 154, 0.3);
+  background: var(--primary-medium);
+  box-shadow: 0 6px 16px rgba(36, 99, 70, 0.18);
   transform: translateY(-1px);
 }
 
@@ -108,7 +107,25 @@ button.secondary {
 }
 
 button.secondary:hover {
-  background: var(--border);
+  background: #e9f0ec;
+  border-color: #d2ddd7;
+}
+
+button.danger {
+  background: var(--danger-background);
+  border: 1px solid #fecaca;
+  color: var(--danger);
+}
+
+button.danger:hover {
+  background: #fee2e2;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  transform: none;
+  box-shadow: none;
 }
 
 /* Layout Utilities */
@@ -116,6 +133,13 @@ button.secondary:hover {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 1.5rem;
+}
+
+h1,
+h2,
+h3 {
+  color: #14231b;
+  letter-spacing: -0.02em;
 }
 
 .flex-center {
@@ -178,12 +202,12 @@ button.secondary:hover {
 /* Custom calendar picker indicator styling */
 input[type="date"] {
   cursor: pointer;
+  accent-color: var(--primary);
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
-  filter: invert(0.8) sepia(1) saturate(5) hue-rotate(110deg);
-  opacity: 0.8;
+  opacity: 0.65;
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
