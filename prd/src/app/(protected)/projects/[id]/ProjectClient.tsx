@@ -11,6 +11,37 @@ const formatPercent = (value: number) => `${(value * 100).toFixed(2)}%`;
 const formatPosition = (value: number) => value.toFixed(1);
 const formatCurrency = (value: number) => `${new Intl.NumberFormat("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} лв.`;
 const formatRatio = (value: number) => `${value.toFixed(2)}x`;
+const REPORT_CHART_COLOR = "#75b7e6";
+
+interface ReportTheme {
+  name: string;
+  className: string;
+  primary: string;
+  medium: string;
+  dark: string;
+  primaryRgb: [number, number, number];
+}
+
+const REPORT_THEMES: Record<string, ReportTheme> = {
+  "Lead Group": {
+    name: "Lead Group",
+    className: "report-theme-lead",
+    primary: "#43b370",
+    medium: "#246346",
+    dark: "#1f5749",
+    primaryRgb: [67, 179, 112],
+  },
+  "Vectory Design": {
+    name: "Vectory",
+    className: "report-theme-vectory",
+    primary: "#3e67a6",
+    medium: "#12416e",
+    dark: "#23385d",
+    primaryRgb: [62, 103, 166],
+  },
+};
+
+const getReportTheme = (theme: string) => REPORT_THEMES[theme] ?? REPORT_THEMES["Lead Group"];
 
 interface MetricChange {
   absolute: number;
@@ -521,8 +552,12 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         import("html2canvas"),
         import("jspdf"),
       ]);
+      if (document.fonts) {
+        await document.fonts.ready;
+      }
 
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const exportTheme = getReportTheme(previewSnapshot.selectedTheme);
       const pageWidthMm = 210;
       const pageHeightMm = 297;
       const contentWidthMm = 190;
@@ -575,17 +610,19 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         }
       }
 
-      const accentRgb = previewSnapshot.selectedTheme === "Lead Group" ? [30, 64, 175] : [13, 148, 136];
+      const accentRgb = exportTheme.primaryRgb;
       const totalPages = pdf.getNumberOfPages();
       for (let page = 1; page <= totalPages; page += 1) {
         pdf.setPage(page);
         pdf.setDrawColor(accentRgb[0], accentRgb[1], accentRgb[2]);
-        pdf.setLineWidth(0.7);
-        pdf.line(10, 12, pageWidthMm - 10, 12);
+        pdf.setFillColor(accentRgb[0], accentRgb[1], accentRgb[2]);
+        pdf.rect(10, 11.2, pageWidthMm - 20, 1.2, "F");
+        pdf.setLineWidth(0.45);
         pdf.line(10, pageHeightMm - 11, pageWidthMm - 10, pageHeightMm - 11);
+        pdf.circle(12.5, pageHeightMm - 6, 1.1, "F");
         pdf.setTextColor(100, 116, 139);
         pdf.setFontSize(8);
-        pdf.text(previewSnapshot.selectedTheme, 10, 9);
+        pdf.text(exportTheme.name, 10, 8.5);
         pdf.text(`${page} / ${totalPages}`, pageWidthMm - 10, pageHeightMm - 6, { align: "right" });
       }
 
@@ -603,11 +640,14 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     }
   };
 
-  const themeAccentColor = selectedTheme === "Lead Group" ? "#1e40af" : "#0d9488";
+  const selectedReportTheme = getReportTheme(selectedTheme);
+  const themeAccentColor = selectedReportTheme.primary;
   const currentPreviewSignature = JSON.stringify(createPreviewSnapshot());
   const isPreviewCurrent = showPreview && !!previewSnapshot && previewSignature === currentPreviewSignature;
   const reportSnapshot = previewSnapshot ?? createPreviewSnapshot();
-  const reportThemeAccentColor = reportSnapshot.selectedTheme === "Lead Group" ? "#1e40af" : "#0d9488";
+  const reportTheme = getReportTheme(reportSnapshot.selectedTheme);
+  const reportThemeAccentColor = reportTheme.primary;
+  const reportChartColor = REPORT_CHART_COLOR;
   const reportHasComparison = !!(reportSnapshot.comparisonStart && reportSnapshot.comparisonEnd);
   const reportIsSourceActive = (type: string) => reportSnapshot.sources.some((source) => source.sourceType === type && source.isEnabled);
   const reportGetSourceField = (type: string, field: "externalAccountId" | "externalAccountName") =>
@@ -651,6 +691,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           background: #e5e7eb !important;
           border: none !important;
           box-shadow: none !important;
+          font-family: "Commissioner", "Segoe UI", Arial, sans-serif !important;
           padding: 1.5rem !important;
         }
         .preview-pages [data-pdf-order] {
@@ -659,9 +700,87 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
           margin: 0 auto 1.5rem;
           max-width: 794px;
-          padding: 3rem;
+          overflow: hidden;
+          padding: 3.35rem 3rem 4.25rem;
+          position: relative;
           scroll-margin-top: 5.5rem;
           width: 100%;
+        }
+        .preview-pages.report-theme-lead {
+          --report-primary: #43b370;
+          --report-medium: #246346;
+          --report-dark: #1f5749;
+        }
+        .preview-pages.report-theme-vectory {
+          --report-primary: #3e67a6;
+          --report-medium: #12416e;
+          --report-dark: #23385d;
+        }
+        .preview-pages .pdf-section::before,
+        .preview-pages .pdf-conclusion::before {
+          background: var(--report-primary);
+          content: "";
+          height: 7px;
+          left: 0;
+          position: absolute;
+          right: 0;
+          top: 0;
+        }
+        .preview-pages .pdf-section::after,
+        .preview-pages .pdf-conclusion::after {
+          border-top: 1px solid #e2e8f0;
+          bottom: 1.25rem;
+          color: var(--report-medium);
+          content: "REPORT / LEAD GROUP";
+          font-size: 0.65rem;
+          font-weight: 700;
+          left: 3rem;
+          letter-spacing: 0.16em;
+          padding-top: 0.7rem;
+          position: absolute;
+          right: 3rem;
+        }
+        .preview-pages.report-theme-vectory .pdf-section::after,
+        .preview-pages.report-theme-vectory .pdf-conclusion::after {
+          content: "REPORT / VECTORY";
+        }
+        .preview-pages.report-theme-lead .pdf-section,
+        .preview-pages.report-theme-lead .pdf-conclusion {
+          background:
+            linear-gradient(135deg, transparent 0 50%, rgba(67, 179, 112, 0.05) 50% 100%) right top / 84px 84px no-repeat,
+            radial-gradient(circle, rgba(67, 179, 112, 0.3) 1.3px, transparent 1.5px) right 26px top 30px / 9px 9px repeat-y,
+            #ffffff;
+        }
+        .preview-pages.report-theme-vectory .pdf-section,
+        .preview-pages.report-theme-vectory .pdf-conclusion {
+          background:
+            radial-gradient(ellipse at 105% 4%, rgba(62, 103, 166, 0.13), transparent 23%),
+            radial-gradient(ellipse at -5% 100%, rgba(18, 65, 110, 0.06), transparent 25%),
+            #ffffff;
+        }
+        .preview-pages .pdf-cover {
+          padding: 4rem 3.5rem;
+        }
+        .preview-pages.report-theme-lead .pdf-cover {
+          background:
+            radial-gradient(circle at 78% 72%, rgba(67, 179, 112, 0.13) 1.4px, transparent 1.6px) 0 0 / 12px 12px,
+            linear-gradient(130deg, #ffffff 0%, #ffffff 54%, rgba(67, 179, 112, 0.08) 100%);
+        }
+        .preview-pages.report-theme-vectory .pdf-cover {
+          background:
+            radial-gradient(ellipse at 96% 78%, rgba(62, 103, 166, 0.22), transparent 35%),
+            radial-gradient(ellipse at 65% 105%, rgba(18, 65, 110, 0.13), transparent 44%),
+            linear-gradient(135deg, #ffffff 0%, #f5f9ff 100%);
+        }
+        .pdf-cover-brand {
+          bottom: 3rem;
+          color: var(--report-medium);
+          font-size: 0.72rem;
+          font-weight: 700;
+          left: 3.5rem;
+          letter-spacing: 0.22em;
+          position: absolute;
+          text-transform: uppercase;
         }
         @media print {
           body * {
@@ -786,8 +905,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     onChange={(e) => setSelectedTheme(e.target.value)}
                     style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: "1px solid var(--border)", background: "var(--background)", color: "var(--foreground)" }}
                   >
-                    <option value="Lead Group">Lead Group (Тъмно синьо)</option>
-                    <option value="Vectory Design">Vectory Design (Тюркоаз)</option>
+                    <option value="Lead Group">Lead Group (Зелена палитра)</option>
+                    <option value="Vectory Design">Vectory (Синя палитра)</option>
                   </select>
                 </div>
 
@@ -1282,11 +1401,11 @@ export default function ProjectClient({ project, sources: initialSources, notes:
             {/* Actual simulated printable PDF sheet */}
             <div
               id="printable-report"
-              className="preview-pages"
+              className={`preview-pages ${reportTheme.className}`}
               style={{
                 color: "#1e293b",
                 borderRadius: "1rem",
-                fontFamily: "'Outfit', 'Inter', sans-serif",
+                fontFamily: "'Commissioner', 'Segoe UI', Arial, sans-serif",
               }}
             >
             {/* Header: Logo and Title */}
@@ -1307,6 +1426,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
             >
               <div style={{ position: "absolute", right: "-110px", bottom: "-110px", width: "340px", height: "340px", borderRadius: "50%", background: reportThemeAccentColor, opacity: 0.08 }} />
               <div style={{ position: "absolute", right: "115px", bottom: "80px", width: "120px", height: "120px", borderRadius: "50%", border: `2px solid ${reportThemeAccentColor}`, opacity: 0.16 }} />
+              <div className="pdf-cover-brand">{reportTheme.name} / Marketing Report</div>
               <div>
                 <h1 style={{ fontSize: "2.4rem", fontWeight: "800", color: "#0f172a", margin: 0, textTransform: "uppercase", letterSpacing: "-0.02em" }}>
                   {reportSnapshot.pdfTitle}
@@ -1361,7 +1481,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "2rem", marginBottom: "1.5rem" }}>
                         <div style={{ border: "1px solid #f1f5f9", padding: "1rem", borderRadius: "0.5rem" }}>
                           <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Динамика на кликовете за периода</p>
-                          <SearchConsoleChart accentColor={reportThemeAccentColor} trend={previewData.gsc.trend} />
+                          <SearchConsoleChart accentColor={reportChartColor} trend={previewData.gsc.trend} />
                         </div>
 
                         <div style={{ border: "1px solid #f1f5f9", padding: "1.25rem", borderRadius: "0.5rem" }}>
@@ -1453,7 +1573,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       <div style={{ border: "1px solid #f1f5f9", padding: "1rem", borderRadius: "0.5rem", marginBottom: "1.5rem" }}>
                         <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Динамика на сесиите за периода</p>
                         <MetricTrendChart
-                          accentColor={reportThemeAccentColor}
+                          accentColor={reportChartColor}
                           points={previewData.ga4.trend.map((point) => ({ date: point.date, value: point.sessions }))}
                         />
                       </div>
@@ -1461,7 +1581,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "2rem", marginBottom: "1.5rem" }}>
                         <div style={{ border: "1px solid #f1f5f9", padding: "1rem", borderRadius: "0.5rem" }}>
                           <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Сесии по основни източници на трафик</p>
-                          <AnalyticsChart accentColor={reportThemeAccentColor} channels={previewData.ga4.channels} />
+                          <AnalyticsChart accentColor={reportChartColor} channels={previewData.ga4.channels} />
                         </div>
 
                         <div style={{ border: "1px solid #f1f5f9", padding: "1.25rem", borderRadius: "0.5rem", display: "flex", flexDirection: "column", justifyContent: "center" }}>
@@ -1547,7 +1667,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       <div style={{ border: "1px solid #f1f5f9", padding: "1rem", borderRadius: "0.5rem", marginBottom: "1.5rem" }}>
                         <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Динамика на бюджета за периода</p>
                         <MetricTrendChart
-                          accentColor={reportThemeAccentColor}
+                          accentColor={reportChartColor}
                           points={previewData.meta_ads.trend.map((point) => ({ date: point.date, value: point.spend }))}
                         />
                       </div>
