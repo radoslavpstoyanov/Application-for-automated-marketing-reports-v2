@@ -246,6 +246,8 @@ interface PreviewData {
   errors: Partial<Record<"gsc" | "ga4" | "google_ads" | "meta_ads", string>>;
 }
 
+type PreviewSourceType = "gsc" | "ga4" | "google_ads" | "meta_ads";
+
 interface PreviewSnapshot {
   pdfTitle: string;
   selectedTheme: string;
@@ -324,11 +326,13 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   const [isPdfDownloading, setIsPdfDownloading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewData, setPreviewData] = useState<PreviewData>({ errors: {} });
+  const [sectionLoading, setSectionLoading] = useState<Partial<Record<PreviewSourceType, boolean>>>({});
   const [previewSnapshot, setPreviewSnapshot] = useState<PreviewSnapshot | null>(null);
   const [previewSignature, setPreviewSignature] = useState<string | null>(null);
   const [toastError, setToastError] = useState("");
   const [toastSuccess, setToastSuccess] = useState("");
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+  const previewCacheRef = useRef<Map<string, PreviewData>>(new Map());
 
   const [googleAccounts, setGoogleAccounts] = useState<{ ga4: { id: string; name: string }[]; gsc: { url: string }[] }>({
     ga4: [],
@@ -441,6 +445,31 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     sources: activeSources.map((source) => ({ ...source })),
     notes: noteList.map((note) => ({ ...note })),
   });
+  const createDataSignature = (snapshot: PreviewSnapshot = createPreviewSnapshot()) => JSON.stringify({
+    selectedTheme: snapshot.selectedTheme,
+    reportingStart: snapshot.reportingStart,
+    reportingEnd: snapshot.reportingEnd,
+    comparisonStart: snapshot.comparisonStart,
+    comparisonEnd: snapshot.comparisonEnd,
+    sources: snapshot.sources
+      .filter((source) => source.isEnabled)
+      .map((source) => ({
+        sourceType: source.sourceType,
+        externalAccountId: source.externalAccountId,
+        primaryConversion: source.primaryConversion ?? null,
+        isEnabled: source.isEnabled,
+      }))
+      .sort((a, b) => a.sourceType.localeCompare(b.sourceType)),
+  });
+  const mergePreviewData = (base: PreviewData, addition: PreviewData): PreviewData => ({
+    ...(base.gsc ? { gsc: base.gsc } : {}),
+    ...(base.ga4 ? { ga4: base.ga4 } : {}),
+    ...(base.meta_ads ? { meta_ads: base.meta_ads } : {}),
+    ...(addition.gsc ? { gsc: addition.gsc } : {}),
+    ...(addition.ga4 ? { ga4: addition.ga4 } : {}),
+    ...(addition.meta_ads ? { meta_ads: addition.meta_ads } : {}),
+    errors: { ...base.errors, ...addition.errors },
+  });
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -510,35 +539,63 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     setValidationErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
+    const snapshot = createPreviewSnapshot();
+    const dataSignature = createDataSignature(snapshot);
+    const cachedData = previewCacheRef.current.get(dataSignature);
+
+    setPreviewSnapshot(snapshot);
+    setPreviewSignature(dataSignature);
+    setShowPreview(true);
+    setToastError("");
+
+    if (cachedData) {
+      setPreviewData(cachedData);
+      setSectionLoading({});
+      setIsPreviewLoading(false);
+      document.getElementById("preview-anchor")?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+
+    const sourcesToFetch = snapshot.sources.filter((source) => source.isEnabled);
+    setPreviewData({ errors: {} });
     setIsPreviewLoading(true);
-    setShowPreview(false);
+    setSectionLoading(Object.fromEntries(sourcesToFetch.map((source) => [source.sourceType, true])));
+    document.getElementById("preview-anchor")?.scrollIntoView({ behavior: "smooth" });
 
     try {
-      const response = await fetch(`/api/projects/${project.id}/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reportingStart,
-          reportingEnd,
-          comparisonStart: comparisonStart || null,
-          comparisonEnd: comparisonEnd || null,
-          sources: activeSources,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Неуспешно генериране на преглед.");
-      }
+      const results = await Promise.all(sourcesToFetch.map(async (source) => {
+        let addition: PreviewData;
+        try {
+          const response = await fetch(`/api/projects/${project.id}/preview`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              reportingStart: snapshot.reportingStart,
+              reportingEnd: snapshot.reportingEnd,
+              comparisonStart: snapshot.comparisonStart || null,
+              comparisonEnd: snapshot.comparisonEnd || null,
+              sources: [source],
+            }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Данните не могат да бъдат заредени.");
+          addition = data as PreviewData;
+        } catch (err: any) {
+          addition = { errors: { [source.sourceType]: err.message || "Данните не могат да бъдат заредени." } };
+        }
 
-      const snapshot = createPreviewSnapshot();
-      setPreviewData(data);
-      setPreviewSnapshot(snapshot);
-      setPreviewSignature(JSON.stringify(snapshot));
-      setShowPreview(true);
-      document.getElementById("preview-anchor")?.scrollIntoView({ behavior: "smooth" });
-    } catch (err: any) {
-      setToastError(err.message || "Неуспешно генериране на преглед.");
+        setPreviewData((current) => mergePreviewData(current, addition));
+        setSectionLoading((current) => ({ ...current, [source.sourceType]: false }));
+        return addition;
+      }));
+
+      const completeData = results.reduce((current, addition) => mergePreviewData(current, addition), { errors: {} } as PreviewData);
+      if (Object.keys(completeData.errors).length === 0) {
+        previewCacheRef.current.set(dataSignature, completeData);
+      }
+      setPreviewData(completeData);
     } finally {
+      setSectionLoading({});
       setIsPreviewLoading(false);
     }
   };
@@ -559,7 +616,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
 
   const handleDownloadPDF = async () => {
     const reportElement = document.getElementById("printable-report");
-    const currentSignature = JSON.stringify(createPreviewSnapshot());
+    const currentSignature = createDataSignature();
     if (!reportElement || !previewSnapshot || previewSignature !== currentSignature) {
       setToastError("Генерирайте нов преглед преди сваляне на отчета.");
       return;
@@ -660,9 +717,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     }
   };
 
-  const selectedReportTheme = getReportTheme(selectedTheme);
-  const themeAccentColor = selectedReportTheme.primary;
-  const currentPreviewSignature = JSON.stringify(createPreviewSnapshot());
+  const currentPreviewSignature = createDataSignature();
   const isPreviewCurrent = showPreview && !!previewSnapshot && previewSignature === currentPreviewSignature;
   const reportSnapshot = previewSnapshot ?? createPreviewSnapshot();
   const reportTheme = getReportTheme(reportSnapshot.selectedTheme);
@@ -717,6 +772,12 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   const validationBorder = (field: string) => validationErrors[field] ? "#dc2626" : "var(--border)";
   const EmptyDataNotice = () => (
     <p className="empty-data-notice">Няма налични данни за избрания период.</p>
+  );
+  const SectionLoadingNotice = ({ label }: { label: string }) => (
+    <div className="section-loading-notice">
+      <div className="spinner" style={{ width: "20px", height: "20px", border: "3px solid #dbeafe", borderTopColor: reportChartColor, borderRadius: "50%", animation: "report-spin 0.8s linear infinite" }} />
+      <span>Зареждане на данни от {label}...</span>
+    </div>
   );
 
   return (
@@ -890,6 +951,18 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           font-size: 0.85rem;
           margin: 0;
           padding: 0.85rem 1rem;
+        }
+        .section-loading-notice {
+          align-items: center;
+          background: #eff6ff;
+          border: 1px solid #dbeafe;
+          border-radius: 0.5rem;
+          color: #334155;
+          display: flex;
+          font-size: 0.88rem;
+          font-weight: 600;
+          gap: 0.75rem;
+          padding: 1rem;
         }
       `}</style>
 
@@ -1407,15 +1480,6 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         </div>
       )}
 
-      {isPreviewLoading && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(15, 23, 42, 0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#ffffff", borderRadius: "0.9rem", padding: "1.75rem 2.25rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem", boxShadow: "0 22px 45px rgba(15, 23, 42, 0.25)" }}>
-            <div className="spinner" style={{ width: "34px", height: "34px", border: "4px solid #e2e8f0", borderTopColor: themeAccentColor, borderRadius: "50%", animation: "report-spin 0.8s linear infinite" }} />
-            <p style={{ margin: 0, fontWeight: "700", color: "#0f172a" }}>Generating report...</p>
-          </div>
-        </div>
-      )}
-
       {showPreview && !isPreviewCurrent && !isPreviewLoading && (
         <div
           className="no-print"
@@ -1450,6 +1514,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", gap: "1rem" }}>
             <div>
               <h3 style={{ fontSize: "1.5rem", fontWeight: "700", marginBottom: isPreviewCurrent ? 0 : "0.4rem" }}>Визуален Преглед на Отчета</h3>
+              {isPreviewLoading && <span style={{ color: "#2563eb", fontSize: "0.85rem", fontWeight: "700" }}>Generating report...</span>}
               {!isPreviewCurrent && <span style={{ color: "#b45309", fontSize: "0.85rem", fontWeight: "700" }}>Preview is outdated</span>}
             </div>
             <button
@@ -1466,10 +1531,10 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           <nav className="no-print" style={{ position: "sticky", top: "1rem", zIndex: 30, display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.55rem", marginBottom: "1rem", padding: "0.75rem 1rem", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "0.75rem", boxShadow: "0 8px 20px rgba(15, 23, 42, 0.08)" }}>
             <span style={{ marginRight: "0.35rem", color: "#64748b", fontSize: "0.75rem", fontWeight: "700", textTransform: "uppercase" }}>Навигация</span>
             <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-cover")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Корица</button>
-            {reportIsSourceActive("gsc") && (previewData.gsc || previewData.errors.gsc) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-gsc")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Search Console</button>}
-            {reportIsSourceActive("google_ads") && previewData.errors.google_ads && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-google-ads")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Google Ads</button>}
-            {reportIsSourceActive("meta_ads") && (previewData.meta_ads || previewData.errors.meta_ads) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-meta")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Meta Ads</button>}
-            {reportIsSourceActive("ga4") && (previewData.ga4 || previewData.errors.ga4) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-ga4")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>GA4</button>}
+            {reportIsSourceActive("gsc") && (sectionLoading.gsc || previewData.gsc || previewData.errors.gsc) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-gsc")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Search Console</button>}
+            {reportIsSourceActive("google_ads") && (sectionLoading.google_ads || previewData.errors.google_ads) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-google-ads")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Google Ads</button>}
+            {reportIsSourceActive("meta_ads") && (sectionLoading.meta_ads || previewData.meta_ads || previewData.errors.meta_ads) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-meta")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Meta Ads</button>}
+            {reportIsSourceActive("ga4") && (sectionLoading.ga4 || previewData.ga4 || previewData.errors.ga4) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-ga4")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>GA4</button>}
             {reportGetNoteText("final") && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-conclusion")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Заключение</button>}
           </nav>
 
@@ -1525,14 +1590,16 @@ export default function ProjectClient({ project, sources: initialSources, notes:
             <div style={{ marginTop: "3rem", display: "flex", flexDirection: "column", gap: "3.5rem" }}>
               
               {/* Google Search Console */}
-              {reportIsSourceActive("gsc") && (previewData.gsc || previewData.errors.gsc) && (
+              {reportIsSourceActive("gsc") && (sectionLoading.gsc || previewData.gsc || previewData.errors.gsc) && (
                 <div id="preview-gsc" className="pdf-section" data-pdf-order="1" style={{ pageBreakInside: "avoid", order: 1 }}>
                   <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
                     <span style={{ color: reportThemeAccentColor }}>●</span> Google Search Console ({reportGetSourceField("gsc", "externalAccountId")})
                   </h2>
                   <SectionPeriod />
                   
-                  {previewData.errors.gsc ? (
+                  {sectionLoading.gsc ? (
+                    <SectionLoadingNotice label="Google Search Console" />
+                  ) : previewData.errors.gsc ? (
                     <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
                       {previewData.errors.gsc}
                     </div>
@@ -1620,14 +1687,16 @@ export default function ProjectClient({ project, sources: initialSources, notes:
               )}
 
               {/* Google Analytics 4 */}
-              {reportIsSourceActive("ga4") && (previewData.ga4 || previewData.errors.ga4) && (
+              {reportIsSourceActive("ga4") && (sectionLoading.ga4 || previewData.ga4 || previewData.errors.ga4) && (
                 <div id="preview-ga4" className="pdf-section" data-pdf-order="4" style={{ pageBreakInside: "avoid", order: 4 }}>
                   <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
                     <span style={{ color: reportThemeAccentColor }}>●</span> Google Analytics 4 ({reportGetSourceField("ga4", "externalAccountName") || reportGetSourceField("ga4", "externalAccountId")})
                   </h2>
                   <SectionPeriod />
                   
-                  {previewData.errors.ga4 ? (
+                  {sectionLoading.ga4 ? (
+                    <SectionLoadingNotice label="Google Analytics 4" />
+                  ) : previewData.errors.ga4 ? (
                     <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
                       {previewData.errors.ga4}
                     </div>
@@ -1712,27 +1781,33 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                 </div>
               )}
 
-              {reportIsSourceActive("google_ads") && previewData.errors.google_ads && (
+              {reportIsSourceActive("google_ads") && (sectionLoading.google_ads || previewData.errors.google_ads) && (
                 <div id="preview-google-ads" className="pdf-section" data-pdf-order="2" style={{ pageBreakInside: "avoid", order: 2 }}>
                   <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
                     <span style={{ color: reportThemeAccentColor }}>●</span> Google Ads ({reportGetSourceField("google_ads", "externalAccountId")})
                   </h2>
                   <SectionPeriod />
-                  <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
-                    {previewData.errors.google_ads}
-                  </div>
+                  {sectionLoading.google_ads ? (
+                    <SectionLoadingNotice label="Google Ads" />
+                  ) : (
+                    <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
+                      {previewData.errors.google_ads}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Meta Ads */}
-              {reportIsSourceActive("meta_ads") && (previewData.meta_ads || previewData.errors.meta_ads) && (
+              {reportIsSourceActive("meta_ads") && (sectionLoading.meta_ads || previewData.meta_ads || previewData.errors.meta_ads) && (
                 <div id="preview-meta" className="pdf-section" data-pdf-order="3" style={{ pageBreakInside: "avoid", order: 3 }}>
                   <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
                     <span style={{ color: reportThemeAccentColor }}>●</span> Meta (Facebook) Ads ({reportGetSourceField("meta_ads", "externalAccountName")})
                   </h2>
                   <SectionPeriod />
 
-                  {previewData.errors.meta_ads ? (
+                  {sectionLoading.meta_ads ? (
+                    <SectionLoadingNotice label="Meta Ads" />
+                  ) : previewData.errors.meta_ads ? (
                     <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
                       {previewData.errors.meta_ads}
                     </div>

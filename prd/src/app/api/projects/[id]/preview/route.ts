@@ -33,15 +33,47 @@ interface MetricChange {
 }
 
 function sourceFeedback(sourceType: SourceType, message?: string) {
-  if (message && /връзката|интеграция|Свържете/.test(message)) return message;
-
   const labels: Record<SourceType, string> = {
     gsc: "Google Search Console",
     ga4: "Google Analytics 4",
     google_ads: "Google Ads",
     meta_ads: "Meta Ads",
   };
+  if (message?.includes("отне твърде много време")) {
+    return `Зареждането от ${labels[sourceType]} отне твърде много време. Опитайте отново.`;
+  }
+  if (message && /връзката|интеграция|Свържете/.test(message)) return message;
+
   return `Данните от ${labels[sourceType]} не могат да бъдат заредени в момента. Проверете връзката и опитайте отново.`;
+}
+
+async function fetchWithRetry(url: string, init?: RequestInit, timeoutMs = 8000) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      if ((response.status === 429 || response.status >= 500) && attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
+      }
+      return response;
+    } catch (error: any) {
+      if (error?.name === "AbortError") {
+        throw new Error("Заявката отне твърде много време.");
+      }
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw new Error("Неуспешно извличане на данни.");
 }
 
 interface SearchAnalyticsRow {
@@ -109,7 +141,7 @@ async function getProviderToken(userId: string, provider: "google" | "meta") {
     throw new Error("Google връзката е изтекла. Свържете акаунта отново.");
   }
 
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+  const tokenRes = await fetchWithRetry("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -147,7 +179,7 @@ async function queryGsc(
   dimensions: string[],
   rowLimit: number
 ) {
-  const response = await fetch(
+  const response = await fetchWithRetry(
     `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,
     {
       method: "POST",
@@ -206,7 +238,7 @@ async function fetchGscData(token: string, source: SourceInput, period: Period, 
 }
 
 async function runGa4Report(token: string, propertyId: string, body: object) {
-  const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`, {
+  const response = await fetchWithRetry(`https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -306,7 +338,7 @@ async function fetchMetaInsights(token: string, accountId: string, period: Perio
     time_range: JSON.stringify({ since: period.startDate, until: period.endDate }),
     ...params,
   });
-  const response = await fetch(`https://graph.facebook.com/v19.0/${accountId}/insights?${query.toString()}`, {
+  const response = await fetchWithRetry(`https://graph.facebook.com/v19.0/${accountId}/insights?${query.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await response.json();
