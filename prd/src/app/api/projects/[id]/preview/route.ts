@@ -2,10 +2,18 @@ import { PrismaClient } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { reportLogger } from "@/lib/report/logger";
+import {
+  calculateCpa,
+  calculateCtr,
+  calculateMetricChange,
+  calculateRoas,
+} from "@/lib/report/metrics";
+import type { PreviewSourceType } from "@/lib/report/sections";
 
 const prisma = new PrismaClient();
 
-type SourceType = "gsc" | "ga4" | "google_ads" | "meta_ads";
+type SourceType = PreviewSourceType;
 
 interface SourceInput {
   sourceType: SourceType;
@@ -25,11 +33,6 @@ interface PreviewInput {
 interface Period {
   startDate: string;
   endDate: string;
-}
-
-interface MetricChange {
-  absolute: number;
-  percent: number | null;
 }
 
 function sourceFeedback(sourceType: SourceType, message?: string) {
@@ -103,14 +106,6 @@ interface MetaInsight {
   clicks?: string;
   actions?: MetaAction[];
   action_values?: MetaAction[];
-}
-
-function change(current: number, previous?: number): MetricChange | undefined {
-  if (previous === undefined) return undefined;
-  return {
-    absolute: current - previous,
-    percent: previous === 0 ? null : (current - previous) / previous,
-  };
 }
 
 async function getProviderToken(userId: string, provider: "google" | "meta") {
@@ -199,7 +194,7 @@ async function fetchGscKpis(token: string, siteUrl: string, period: Period) {
   return {
     clicks: total.clicks ?? 0,
     impressions: total.impressions ?? 0,
-    ctr: total.ctr ?? 0,
+    ctr: calculateCtr(total.clicks ?? 0, total.impressions ?? 0),
     position: total.position ?? 0,
   };
 }
@@ -217,10 +212,10 @@ async function fetchGscData(token: string, source: SourceInput, period: Period, 
     kpis: current,
     changes: previous
       ? {
-          clicks: change(current.clicks, previous.clicks),
-          impressions: change(current.impressions, previous.impressions),
-          ctr: change(current.ctr, previous.ctr),
-          position: change(current.position, previous.position),
+          clicks: calculateMetricChange(current.clicks, previous.clicks),
+          impressions: calculateMetricChange(current.impressions, previous.impressions),
+          ctr: calculateMetricChange(current.ctr, previous.ctr),
+          position: calculateMetricChange(current.position, previous.position),
         }
       : undefined,
     trend: trend.map((row) => ({ date: row.keys?.[0] ?? "", clicks: row.clicks ?? 0 })),
@@ -306,10 +301,10 @@ async function fetchGa4Data(token: string, source: SourceInput, period: Period, 
     kpis: current,
     changes: previous
       ? {
-          users: change(current.users, previous.users),
-          sessions: change(current.sessions, previous.sessions),
-          engagedSessions: change(current.engagedSessions, previous.engagedSessions),
-          conversions: change(current.conversions, previous.conversions),
+          users: calculateMetricChange(current.users, previous.users),
+          sessions: calculateMetricChange(current.sessions, previous.sessions),
+          engagedSessions: calculateMetricChange(current.engagedSessions, previous.engagedSessions),
+          conversions: calculateMetricChange(current.conversions, previous.conversions),
         }
       : undefined,
     trend: ((trend.rows ?? []) as Ga4Row[]).map((row) => ({
@@ -366,8 +361,8 @@ async function fetchMetaKpis(token: string, source: SourceInput, period: Period)
     reach: Number(row.reach ?? 0),
     clicks: Number(row.clicks ?? 0),
     conversions,
-    cpa: conversions > 0 ? spend / conversions : 0,
-    roas: spend > 0 ? value / spend : 0,
+    cpa: calculateCpa(spend, conversions),
+    roas: calculateRoas(value, spend),
   };
 }
 
@@ -390,13 +385,13 @@ async function fetchMetaData(token: string, source: SourceInput, period: Period,
     kpis: current,
     changes: previous
       ? {
-          spend: change(current.spend, previous.spend),
-          impressions: change(current.impressions, previous.impressions),
-          reach: change(current.reach, previous.reach),
-          clicks: change(current.clicks, previous.clicks),
-          conversions: change(current.conversions, previous.conversions),
-          cpa: change(current.cpa, previous.cpa),
-          roas: change(current.roas, previous.roas),
+          spend: calculateMetricChange(current.spend, previous.spend),
+          impressions: calculateMetricChange(current.impressions, previous.impressions),
+          reach: calculateMetricChange(current.reach, previous.reach),
+          clicks: calculateMetricChange(current.clicks, previous.clicks),
+          conversions: calculateMetricChange(current.conversions, previous.conversions),
+          cpa: calculateMetricChange(current.cpa, previous.cpa),
+          roas: calculateMetricChange(current.roas, previous.roas),
         }
       : undefined,
     trend: trend.map((row) => ({ date: row.date_start ?? "", spend: Number(row.spend ?? 0) })),
@@ -410,8 +405,8 @@ async function fetchMetaData(token: string, source: SourceInput, period: Period,
           spend,
           clicks: Number(row.clicks ?? 0),
           conversions,
-          cpa: conversions > 0 ? spend / conversions : 0,
-          roas: spend > 0 ? value / spend : 0,
+          cpa: calculateCpa(spend, conversions),
+          roas: calculateRoas(value, spend),
         };
       })
       .sort((a, b) => b.spend - a.spend),
@@ -465,6 +460,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let metaToken: string | undefined;
 
   await Promise.all(sources.map(async (source) => {
+    reportLogger.debug("Loading report source", { sourceType: source.sourceType });
     try {
       if (source.sourceType === "gsc" || source.sourceType === "ga4") {
         googleToken ??= await getProviderToken(userId, "google");
@@ -476,8 +472,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       } else if (source.sourceType === "google_ads") {
         result.errors.google_ads = "Google Ads все още не е настроен за извличане на данни.";
       }
+      reportLogger.debug("Report source processed", { sourceType: source.sourceType });
     } catch (error: any) {
       result.errors[source.sourceType] = sourceFeedback(source.sourceType, error.message);
+      reportLogger.warn("Report source failed", { sourceType: source.sourceType });
     }
   }));
 

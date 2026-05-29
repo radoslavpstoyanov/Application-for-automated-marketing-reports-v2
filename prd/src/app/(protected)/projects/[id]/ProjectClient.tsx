@@ -4,13 +4,19 @@ import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Toast } from "@/components/Toast";
+import { AnalyticsChart, MetricTrendChart, SearchConsoleChart, type Ga4Channel, type GscTrendPoint } from "@/components/report/ReportCharts";
+import { EmptyDataNotice, KpiGrid, ReportPanel, ReportSection, ReportTable, SectionErrorNotice, SectionLoadingNotice } from "@/components/report/ReportUI";
+import { reportLogger } from "@/lib/report/logger";
+import {
+  formatCurrency,
+  formatNumber,
+  formatPercent,
+  formatPosition,
+  formatRatio,
+  type MetricChange,
+} from "@/lib/report/metrics";
+import { REPORT_EXTENSION_SECTIONS, REPORT_SECTION_DEFINITIONS, getReportSection, type PreviewSourceType } from "@/lib/report/sections";
 
-// SVG Charts & Helpers
-const formatNumber = (value: number) => new Intl.NumberFormat("bg-BG").format(value);
-const formatPercent = (value: number) => `${(value * 100).toFixed(2)}%`;
-const formatPosition = (value: number) => value.toFixed(1);
-const formatCurrency = (value: number) => `${new Intl.NumberFormat("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} лв.`;
-const formatRatio = (value: number) => `${value.toFixed(2)}x`;
 const REPORT_CHART_COLOR = "#75b7e6";
 
 interface ReportTheme {
@@ -42,143 +48,6 @@ const REPORT_THEMES: Record<string, ReportTheme> = {
 };
 
 const getReportTheme = (theme: string) => REPORT_THEMES[theme] ?? REPORT_THEMES["Lead Group"];
-
-interface MetricChange {
-  absolute: number;
-  percent: number | null;
-}
-
-const ComparisonChange = ({ change, invert = false }: { change?: MetricChange; invert?: boolean }) => {
-  if (!change) return null;
-  const improved = invert ? change.absolute <= 0 : change.absolute >= 0;
-  const text = change.percent === null
-    ? `${change.absolute >= 0 ? "+" : ""}${formatNumber(change.absolute)}`
-    : `${change.percent >= 0 ? "+" : ""}${(change.percent * 100).toFixed(1)}%`;
-
-  return (
-    <span style={{ fontSize: "0.78rem", color: improved ? "#16a34a" : "#dc2626", fontWeight: "600" }}>
-      {text} {change.absolute >= 0 ? "↑" : "↓"}
-    </span>
-  );
-};
-
-interface GscTrendPoint {
-  date: string;
-  clicks: number;
-}
-
-const SearchConsoleChart = ({ accentColor, trend }: { accentColor: string; trend: GscTrendPoint[] }) => {
-  if (trend.length === 0) {
-    return <p className="empty-data-notice">Няма налични данни за избрания период.</p>;
-  }
-
-  const maxClicks = Math.max(...trend.map((point) => point.clicks), 1);
-  const points = trend.map((point, index) => ({
-    x: 50 + (trend.length === 1 ? 200 : (index * 400) / (trend.length - 1)),
-    y: 170 - (point.clicks / maxClicks) * 140,
-    label: point.date.slice(5).split("-").reverse().join("."),
-  }));
-  const line = points.map((point) => `${point.x},${point.y}`).join(" ");
-  const area = `50,170 ${line} ${points[points.length - 1].x},170`;
-  const labelIndexes = Array.from(new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]));
-
-  return (
-    <svg viewBox="0 0 500 200" style={{ width: "100%", height: "auto", overflow: "visible" }}>
-      <line x1="50" y1="30" x2="450" y2="30" stroke="#f1f5f9" strokeWidth="1" />
-      <line x1="50" y1="100" x2="450" y2="100" stroke="#f1f5f9" strokeWidth="1" />
-      <line x1="50" y1="170" x2="450" y2="170" stroke="#cbd5e1" strokeWidth="1" />
-      <polygon points={area} fill={accentColor} opacity="0.15" />
-      <polyline points={line} fill="none" stroke={accentColor} strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round" />
-      {points.map((point) => (
-        <circle key={`${point.x}-${point.y}`} cx={point.x} cy={point.y} r="3" fill="#fff" stroke={accentColor} strokeWidth="2" />
-      ))}
-      {labelIndexes.map((index) => (
-        <text key={points[index].label} x={points[index].x} y="190" fontSize="10" fill="#94a3b8" textAnchor="middle">
-          {points[index].label}
-        </text>
-      ))}
-    </svg>
-  );
-};
-
-interface Ga4Channel {
-  channel: string;
-  sessions: number;
-}
-
-const AnalyticsChart = ({ accentColor, channels }: { accentColor: string; channels: Ga4Channel[] }) => {
-  if (channels.length === 0) {
-    return <p className="empty-data-notice">Няма налични данни за избрания период.</p>;
-  }
-
-  const maxSessions = Math.max(...channels.map((channel) => channel.sessions), 1);
-  const columnWidth = 55;
-
-  return (
-    <svg viewBox="0 0 500 200" style={{ width: "100%", height: "auto", overflow: "visible" }}>
-      <line x1="35" y1="170" x2="470" y2="170" stroke="#cbd5e1" strokeWidth="1" />
-      {channels.slice(0, 4).map((channel, index) => {
-        const x = 60 + index * 102;
-        const height = (channel.sessions / maxSessions) * 125;
-        return (
-          <g key={channel.channel}>
-            <rect x={x} y={170 - height} width={columnWidth} height={height} rx="4" fill={accentColor} />
-            <text x={x + columnWidth / 2} y="188" fontSize="9" fill="#64748b" textAnchor="middle">
-              {channel.channel.length > 13 ? `${channel.channel.slice(0, 12)}...` : channel.channel}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-};
-
-interface MetricTrendPoint {
-  date: string;
-  value: number;
-}
-
-const formatTrendDate = (date: string) => {
-  if (date.length === 8 && !date.includes("-")) {
-    return `${date.slice(6, 8)}.${date.slice(4, 6)}`;
-  }
-
-  return date.slice(5).split("-").reverse().join(".");
-};
-
-const MetricTrendChart = ({ accentColor, points }: { accentColor: string; points: MetricTrendPoint[] }) => {
-  if (points.length === 0) {
-    return <p className="empty-data-notice">Няма налични данни за избрания период.</p>;
-  }
-
-  const maxValue = Math.max(...points.map((point) => point.value), 1);
-  const plotted = points.map((point, index) => ({
-    x: 50 + (points.length === 1 ? 200 : (index * 400) / (points.length - 1)),
-    y: 170 - (point.value / maxValue) * 140,
-    label: formatTrendDate(point.date),
-  }));
-  const line = plotted.map((point) => `${point.x},${point.y}`).join(" ");
-  const area = `50,170 ${line} ${plotted[plotted.length - 1].x},170`;
-  const labelIndexes = Array.from(new Set([0, Math.floor((plotted.length - 1) / 2), plotted.length - 1]));
-
-  return (
-    <svg viewBox="0 0 500 200" style={{ width: "100%", height: "auto", overflow: "visible" }}>
-      <line x1="50" y1="30" x2="450" y2="30" stroke="#f1f5f9" strokeWidth="1" />
-      <line x1="50" y1="100" x2="450" y2="100" stroke="#f1f5f9" strokeWidth="1" />
-      <line x1="50" y1="170" x2="450" y2="170" stroke="#cbd5e1" strokeWidth="1" />
-      <polygon points={area} fill={accentColor} opacity="0.15" />
-      <polyline points={line} fill="none" stroke={accentColor} strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round" />
-      {plotted.map((point) => (
-        <circle key={`${point.x}-${point.y}`} cx={point.x} cy={point.y} r="3" fill="#fff" stroke={accentColor} strokeWidth="2" />
-      ))}
-      {labelIndexes.map((index) => (
-        <text key={plotted[index].label} x={plotted[index].x} y="190" fontSize="10" fill="#94a3b8" textAnchor="middle">
-          {plotted[index].label}
-        </text>
-      ))}
-    </svg>
-  );
-};
 
 interface ProjectSource {
   sourceType: string;
@@ -245,8 +114,6 @@ interface PreviewData {
   };
   errors: Partial<Record<"gsc" | "ga4" | "google_ads" | "meta_ads", string>>;
 }
-
-type PreviewSourceType = "gsc" | "ga4" | "google_ads" | "meta_ads";
 
 interface PreviewSnapshot {
   pdfTitle: string;
@@ -542,6 +409,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     const snapshot = createPreviewSnapshot();
     const dataSignature = createDataSignature(snapshot);
     const cachedData = previewCacheRef.current.get(dataSignature);
+    const sourcesToFetch = snapshot.sources.filter((source) => source.isEnabled);
 
     setPreviewSnapshot(snapshot);
     setPreviewSignature(dataSignature);
@@ -549,6 +417,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     setToastError("");
 
     if (cachedData) {
+      reportLogger.debug("Using cached preview data", { sourceCount: sourcesToFetch.length });
       setPreviewData(cachedData);
       setSectionLoading({});
       setIsPreviewLoading(false);
@@ -556,7 +425,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       return;
     }
 
-    const sourcesToFetch = snapshot.sources.filter((source) => source.isEnabled);
+    reportLogger.debug("Starting preview data request", { sourceCount: sourcesToFetch.length });
     setPreviewData({ errors: {} });
     setIsPreviewLoading(true);
     setSectionLoading(Object.fromEntries(sourcesToFetch.map((source) => [source.sourceType, true])));
@@ -580,8 +449,10 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "Данните не могат да бъдат заредени.");
           addition = data as PreviewData;
+          reportLogger.debug("Preview source loaded", { sourceType: source.sourceType });
         } catch (err: any) {
           addition = { errors: { [source.sourceType]: err.message || "Данните не могат да бъдат заредени." } };
+          reportLogger.warn("Preview source failed", { sourceType: source.sourceType });
         }
 
         setPreviewData((current) => mergePreviewData(current, addition));
@@ -594,6 +465,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         previewCacheRef.current.set(dataSignature, completeData);
       }
       setPreviewData(completeData);
+      reportLogger.debug("Preview data request completed", { hasErrors: Object.keys(completeData.errors).length > 0 });
     } finally {
       setSectionLoading({});
       setIsPreviewLoading(false);
@@ -709,8 +581,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         .trim();
 
       pdf.save(`${fileName}.pdf`);
-    } catch (err) {
-      console.error("PDF export error:", err);
+    } catch {
+      reportLogger.warn("PDF export failed");
       setToastError("Неуспешно генериране на PDF файла.");
     } finally {
       setIsPdfDownloading(false);
@@ -723,6 +595,10 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   const reportTheme = getReportTheme(reportSnapshot.selectedTheme);
   const reportThemeAccentColor = reportTheme.primary;
   const reportChartColor = REPORT_CHART_COLOR;
+  const gscSection = getReportSection("gsc");
+  const ga4Section = getReportSection("ga4");
+  const googleAdsSection = getReportSection("google_ads");
+  const metaAdsSection = getReportSection("meta_ads");
   const reportHasComparison = !!(reportSnapshot.comparisonStart && reportSnapshot.comparisonEnd);
   const reportIsSourceActive = (type: string) => reportSnapshot.sources.some((source) => source.sourceType === type && source.isEnabled);
   const reportGetSourceField = (type: string, field: "externalAccountId" | "externalAccountName") =>
@@ -746,6 +622,12 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     previewData.meta_ads.campaigns.length > 0 ||
     Object.values(previewData.meta_ads.kpis).some((value) => value !== 0)
   );
+  const reportSectionIsVisible = (sourceType: PreviewSourceType) => {
+    if (sourceType === "gsc") return !!(sectionLoading.gsc || previewData.gsc || previewData.errors.gsc);
+    if (sourceType === "ga4") return !!(sectionLoading.ga4 || previewData.ga4 || previewData.errors.ga4);
+    if (sourceType === "meta_ads") return !!(sectionLoading.meta_ads || previewData.meta_ads || previewData.errors.meta_ads);
+    return !!(sectionLoading.google_ads || previewData.errors.google_ads);
+  };
   const scrollToPreviewSection = (sectionId: string) => {
     document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -770,15 +652,6 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     <p className="field-error" role="alert">{validationErrors[field]}</p>
   ) : null;
   const validationBorder = (field: string) => validationErrors[field] ? "#dc2626" : "var(--border)";
-  const EmptyDataNotice = () => (
-    <p className="empty-data-notice">Няма налични данни за избрания период.</p>
-  );
-  const SectionLoadingNotice = ({ label }: { label: string }) => (
-    <div className="section-loading-notice">
-      <div className="spinner" style={{ width: "20px", height: "20px", border: "3px solid #dbeafe", borderTopColor: reportChartColor, borderRadius: "50%", animation: "report-spin 0.8s linear infinite" }} />
-      <span>Зареждане на данни от {label}...</span>
-    </div>
-  );
 
   return (
     <div style={{ paddingBottom: "6rem" }}>
@@ -1531,10 +1404,16 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           <nav className="no-print" style={{ position: "sticky", top: "1rem", zIndex: 30, display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.55rem", marginBottom: "1rem", padding: "0.75rem 1rem", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "0.75rem", boxShadow: "0 8px 20px rgba(15, 23, 42, 0.08)" }}>
             <span style={{ marginRight: "0.35rem", color: "#64748b", fontSize: "0.75rem", fontWeight: "700", textTransform: "uppercase" }}>Навигация</span>
             <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-cover")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Корица</button>
-            {reportIsSourceActive("gsc") && (sectionLoading.gsc || previewData.gsc || previewData.errors.gsc) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-gsc")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Search Console</button>}
-            {reportIsSourceActive("google_ads") && (sectionLoading.google_ads || previewData.errors.google_ads) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-google-ads")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Google Ads</button>}
-            {reportIsSourceActive("meta_ads") && (sectionLoading.meta_ads || previewData.meta_ads || previewData.errors.meta_ads) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-meta")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Meta Ads</button>}
-            {reportIsSourceActive("ga4") && (sectionLoading.ga4 || previewData.ga4 || previewData.errors.ga4) && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-ga4")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>GA4</button>}
+            {REPORT_SECTION_DEFINITIONS.filter((section) => reportIsSourceActive(section.sourceType) && reportSectionIsVisible(section.sourceType)).map((section) => (
+              <button key={section.sourceType} type="button" className="secondary" onClick={() => scrollToPreviewSection(section.id)} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>
+                {section.navLabel}
+              </button>
+            ))}
+            {REPORT_EXTENSION_SECTIONS.map((section) => (
+              <button key={section.id} type="button" className="secondary" onClick={() => scrollToPreviewSection(section.id)} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>
+                {section.navLabel}
+              </button>
+            ))}
             {reportGetNoteText("final") && <button type="button" className="secondary" onClick={() => scrollToPreviewSection("preview-conclusion")} style={{ padding: "0.55rem 0.7rem", fontSize: "0.78rem", textTransform: "none" }}>Заключение</button>}
           </nav>
 
@@ -1591,150 +1470,101 @@ export default function ProjectClient({ project, sources: initialSources, notes:
               
               {/* Google Search Console */}
               {reportIsSourceActive("gsc") && (sectionLoading.gsc || previewData.gsc || previewData.errors.gsc) && (
-                <div id="preview-gsc" className="pdf-section" data-pdf-order="1" style={{ pageBreakInside: "avoid", order: 1 }}>
-                  <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
-                    <span style={{ color: reportThemeAccentColor }}>●</span> Google Search Console ({reportGetSourceField("gsc", "externalAccountId")})
-                  </h2>
+                <ReportSection section={gscSection} accountLabel={reportGetSourceField("gsc", "externalAccountId")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
                   
                   {sectionLoading.gsc ? (
-                    <SectionLoadingNotice label="Google Search Console" />
+                    <SectionLoadingNotice label={gscSection.loadingLabel} accentColor={reportChartColor} />
                   ) : previewData.errors.gsc ? (
-                    <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
-                      {previewData.errors.gsc}
-                    </div>
+                    <SectionErrorNotice message={previewData.errors.gsc} />
                   ) : previewData.gsc && !gscHasData ? (
                     <EmptyDataNotice />
                   ) : previewData.gsc ? (
                     <>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1.5rem", marginBottom: "2rem" }}>
-                        {[
+                      <KpiGrid
+                        items={[
                           { label: "Кликвания", value: formatNumber(previewData.gsc.kpis.clicks), delta: previewData.gsc.changes?.clicks },
                           { label: "Импресии", value: formatNumber(previewData.gsc.kpis.impressions), delta: previewData.gsc.changes?.impressions },
                           { label: "CTR (Честота)", value: formatPercent(previewData.gsc.kpis.ctr), delta: previewData.gsc.changes?.ctr },
                           { label: "Позиция", value: formatPosition(previewData.gsc.kpis.position), delta: previewData.gsc.changes?.position, invert: true },
-                        ].map(({ label, value, delta, invert }) => (
-                          <div key={label} style={{ background: "#f8fafc", padding: "1rem", borderRadius: "0.5rem" }}>
-                            <span style={{ fontSize: "0.8rem", color: "#64748b", fontWeight: "600", textTransform: "uppercase" }}>{label}</span>
-                            <p style={{ fontSize: "1.6rem", fontWeight: "700", margin: "0.25rem 0 0 0", color: "#0f172a" }}>{value}</p>
-                            <ComparisonChange change={delta} invert={invert} />
-                          </div>
-                        ))}
-                      </div>
+                        ]}
+                      />
 
                       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "2rem", marginBottom: "1.5rem" }}>
-                        <div style={{ border: "1px solid #f1f5f9", padding: "1rem", borderRadius: "0.5rem" }}>
-                          <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Динамика на кликовете за периода</p>
+                        <ReportPanel title="Динамика на кликовете за периода">
                           <SearchConsoleChart accentColor={reportChartColor} trend={previewData.gsc.trend} />
-                        </div>
+                        </ReportPanel>
 
-                        <div style={{ border: "1px solid #f1f5f9", padding: "1.25rem", borderRadius: "0.5rem" }}>
-                          <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Топ търсения</p>
-                          {previewData.gsc.topQueries.length > 0 ? (
-                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-                              <thead>
-                                <tr style={{ borderBottom: "1px solid #e2e8f0", textAlign: "left" }}>
-                                  <th style={{ paddingBottom: "0.4rem" }}>Ключова дума</th>
-                                  <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>Кликове</th>
-                                  <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>Поз.</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {previewData.gsc.topQueries.map((row) => (
-                                  <tr key={row.query} style={{ borderBottom: "1px solid #f8fafc" }}>
-                                    <td style={{ padding: "0.4rem 0" }}>{row.query}</td>
-                                    <td style={{ padding: "0.4rem 0", textAlign: "right", fontWeight: "700" }}>{formatNumber(row.clicks)}</td>
-                                    <td style={{ padding: "0.4rem 0", textAlign: "right" }}>{formatPosition(row.position)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <EmptyDataNotice />
-                          )}
-                        </div>
+                        <ReportPanel title="Топ търсения">
+                          <ReportTable
+                            rows={previewData.gsc.topQueries}
+                            getRowKey={(row) => row.query}
+                            columns={[
+                              { header: "Ключова дума", render: (row) => row.query },
+                              { header: "Кликове", align: "right", render: (row) => <strong>{formatNumber(row.clicks)}</strong> },
+                              { header: "Поз.", align: "right", render: (row) => formatPosition(row.position) },
+                            ]}
+                          />
+                        </ReportPanel>
                       </div>
 
-                      {previewData.gsc.topPages.length > 0 && (
-                        <div style={{ border: "1px solid #f1f5f9", padding: "1.25rem", borderRadius: "0.5rem", marginBottom: "1.5rem" }}>
-                          <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Топ страници</p>
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-                            <thead>
-                              <tr style={{ borderBottom: "1px solid #e2e8f0", textAlign: "left" }}>
-                                <th style={{ paddingBottom: "0.4rem" }}>Страница</th>
-                                <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>Кликове</th>
-                                <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>Импресии</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {previewData.gsc.topPages.map((row) => (
-                                <tr key={row.page} style={{ borderBottom: "1px solid #f8fafc" }}>
-                                  <td style={{ padding: "0.4rem 0", wordBreak: "break-all" }}>{row.page}</td>
-                                  <td style={{ padding: "0.4rem 0", textAlign: "right", fontWeight: "700" }}>{formatNumber(row.clicks)}</td>
-                                  <td style={{ padding: "0.4rem 0", textAlign: "right" }}>{formatNumber(row.impressions)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                      {previewData.gsc.topPages.length === 0 && <EmptyDataNotice />}
+                      <div style={{ marginBottom: "1.5rem" }}>
+                        <ReportPanel title="Топ страници">
+                          <ReportTable
+                            rows={previewData.gsc.topPages}
+                            getRowKey={(row) => row.page}
+                            columns={[
+                              { header: "Страница", render: (row) => <span style={{ wordBreak: "break-all" }}>{row.page}</span> },
+                              { header: "Кликове", align: "right", render: (row) => <strong>{formatNumber(row.clicks)}</strong> },
+                              { header: "Импресии", align: "right", render: (row) => formatNumber(row.impressions) },
+                            ]}
+                          />
+                        </ReportPanel>
+                      </div>
                     </>
                   ) : null}
 
                   <SectionSummary noteType="seo" />
-                </div>
+                </ReportSection>
               )}
 
               {/* Google Analytics 4 */}
               {reportIsSourceActive("ga4") && (sectionLoading.ga4 || previewData.ga4 || previewData.errors.ga4) && (
-                <div id="preview-ga4" className="pdf-section" data-pdf-order="4" style={{ pageBreakInside: "avoid", order: 4 }}>
-                  <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
-                    <span style={{ color: reportThemeAccentColor }}>●</span> Google Analytics 4 ({reportGetSourceField("ga4", "externalAccountName") || reportGetSourceField("ga4", "externalAccountId")})
-                  </h2>
+                <ReportSection section={ga4Section} accountLabel={reportGetSourceField("ga4", "externalAccountName") || reportGetSourceField("ga4", "externalAccountId")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
                   
                   {sectionLoading.ga4 ? (
-                    <SectionLoadingNotice label="Google Analytics 4" />
+                    <SectionLoadingNotice label={ga4Section.loadingLabel} accentColor={reportChartColor} />
                   ) : previewData.errors.ga4 ? (
-                    <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
-                      {previewData.errors.ga4}
-                    </div>
+                    <SectionErrorNotice message={previewData.errors.ga4} />
                   ) : previewData.ga4 && !ga4HasData ? (
                     <EmptyDataNotice />
                   ) : previewData.ga4 ? (
                     <>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1.5rem", marginBottom: "2rem" }}>
-                        {[
+                      <KpiGrid
+                        items={[
                           { label: "Потребители", value: formatNumber(previewData.ga4.kpis.users), delta: previewData.ga4.changes?.users },
                           { label: "Сесии", value: formatNumber(previewData.ga4.kpis.sessions), delta: previewData.ga4.changes?.sessions },
                           { label: "Ангажирани сесии", value: formatNumber(previewData.ga4.kpis.engagedSessions), delta: previewData.ga4.changes?.engagedSessions },
                           { label: `Конверсии (${previewData.ga4.conversionName})`, value: formatNumber(previewData.ga4.kpis.conversions), delta: previewData.ga4.changes?.conversions },
-                        ].map(({ label, value, delta }) => (
-                          <div key={label} style={{ background: "#f8fafc", padding: "1rem", borderRadius: "0.5rem" }}>
-                            <span style={{ fontSize: "0.8rem", color: "#64748b", fontWeight: "600", textTransform: "uppercase" }}>{label}</span>
-                            <p style={{ fontSize: "1.6rem", fontWeight: "700", margin: "0.25rem 0 0 0", color: "#0f172a" }}>{value}</p>
-                            <ComparisonChange change={delta} />
-                          </div>
-                        ))}
-                      </div>
+                        ]}
+                      />
 
-                      <div style={{ border: "1px solid #f1f5f9", padding: "1rem", borderRadius: "0.5rem", marginBottom: "1.5rem" }}>
-                        <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Динамика на сесиите за периода</p>
-                        <MetricTrendChart
-                          accentColor={reportChartColor}
-                          points={previewData.ga4.trend.map((point) => ({ date: point.date, value: point.sessions }))}
-                        />
+                      <div style={{ marginBottom: "1.5rem" }}>
+                        <ReportPanel title="Динамика на сесиите за периода">
+                          <MetricTrendChart
+                            accentColor={reportChartColor}
+                            points={previewData.ga4.trend.map((point) => ({ date: point.date, value: point.sessions }))}
+                          />
+                        </ReportPanel>
                       </div>
 
                       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "2rem", marginBottom: "1.5rem" }}>
-                        <div style={{ border: "1px solid #f1f5f9", padding: "1rem", borderRadius: "0.5rem" }}>
-                          <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Сесии по основни източници на трафик</p>
+                        <ReportPanel title="Сесии по основни източници на трафик">
                           <AnalyticsChart accentColor={reportChartColor} channels={previewData.ga4.channels} />
-                        </div>
+                        </ReportPanel>
 
-                        <div style={{ border: "1px solid #f1f5f9", padding: "1.25rem", borderRadius: "0.5rem", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                          <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1.25rem 0" }}>Резюме на трафика</p>
+                        <ReportPanel title="Резюме на трафика">
                           {previewData.ga4.channels.length > 0 ? (
                             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", fontSize: "0.85rem" }}>
                               {previewData.ga4.channels.map((channel) => (
@@ -1747,76 +1577,55 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                           ) : (
                             <EmptyDataNotice />
                           )}
-                        </div>
+                        </ReportPanel>
                       </div>
 
-                      {previewData.ga4.landingPages.length > 0 && (
-                        <div style={{ border: "1px solid #f1f5f9", padding: "1.25rem", borderRadius: "0.5rem", marginBottom: "1.5rem" }}>
-                          <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Landing Pages</p>
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-                            <thead>
-                              <tr style={{ borderBottom: "1px solid #e2e8f0", textAlign: "left" }}>
-                                <th style={{ paddingBottom: "0.4rem" }}>Страница</th>
-                                <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>Сесии</th>
-                                <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>Потребители</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {previewData.ga4.landingPages.map((row) => (
-                                <tr key={row.page} style={{ borderBottom: "1px solid #f8fafc" }}>
-                                  <td style={{ padding: "0.4rem 0", wordBreak: "break-all" }}>{row.page}</td>
-                                  <td style={{ padding: "0.4rem 0", textAlign: "right", fontWeight: "700" }}>{formatNumber(row.sessions)}</td>
-                                  <td style={{ padding: "0.4rem 0", textAlign: "right" }}>{formatNumber(row.users)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                      {previewData.ga4.landingPages.length === 0 && <EmptyDataNotice />}
+                      <div style={{ marginBottom: "1.5rem" }}>
+                        <ReportPanel title="Landing Pages">
+                          <ReportTable
+                            rows={previewData.ga4.landingPages}
+                            getRowKey={(row) => row.page}
+                            columns={[
+                              { header: "Страница", render: (row) => <span style={{ wordBreak: "break-all" }}>{row.page}</span> },
+                              { header: "Сесии", align: "right", render: (row) => <strong>{formatNumber(row.sessions)}</strong> },
+                              { header: "Потребители", align: "right", render: (row) => formatNumber(row.users) },
+                            ]}
+                          />
+                        </ReportPanel>
+                      </div>
                     </>
                   ) : null}
 
                   <SectionSummary noteType="traffic" />
-                </div>
+                </ReportSection>
               )}
 
               {reportIsSourceActive("google_ads") && (sectionLoading.google_ads || previewData.errors.google_ads) && (
-                <div id="preview-google-ads" className="pdf-section" data-pdf-order="2" style={{ pageBreakInside: "avoid", order: 2 }}>
-                  <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
-                    <span style={{ color: reportThemeAccentColor }}>●</span> Google Ads ({reportGetSourceField("google_ads", "externalAccountId")})
-                  </h2>
+                <ReportSection section={googleAdsSection} accountLabel={reportGetSourceField("google_ads", "externalAccountId")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
                   {sectionLoading.google_ads ? (
-                    <SectionLoadingNotice label="Google Ads" />
+                    <SectionLoadingNotice label={googleAdsSection.loadingLabel} accentColor={reportChartColor} />
                   ) : (
-                    <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
-                      {previewData.errors.google_ads}
-                    </div>
+                    <SectionErrorNotice message={previewData.errors.google_ads ?? "Данните не могат да бъдат заредени."} />
                   )}
-                </div>
+                </ReportSection>
               )}
 
               {/* Meta Ads */}
               {reportIsSourceActive("meta_ads") && (sectionLoading.meta_ads || previewData.meta_ads || previewData.errors.meta_ads) && (
-                <div id="preview-meta" className="pdf-section" data-pdf-order="3" style={{ pageBreakInside: "avoid", order: 3 }}>
-                  <h2 style={{ fontSize: "1.4rem", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: "2px solid #f1f5f9", paddingBottom: "0.5rem", marginBottom: "1.5rem" }}>
-                    <span style={{ color: reportThemeAccentColor }}>●</span> Meta (Facebook) Ads ({reportGetSourceField("meta_ads", "externalAccountName")})
-                  </h2>
+                <ReportSection section={metaAdsSection} accountLabel={reportGetSourceField("meta_ads", "externalAccountName")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
 
                   {sectionLoading.meta_ads ? (
-                    <SectionLoadingNotice label="Meta Ads" />
+                    <SectionLoadingNotice label={metaAdsSection.loadingLabel} accentColor={reportChartColor} />
                   ) : previewData.errors.meta_ads ? (
-                    <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
-                      {previewData.errors.meta_ads}
-                    </div>
+                    <SectionErrorNotice message={previewData.errors.meta_ads} />
                   ) : previewData.meta_ads && !metaHasData ? (
                     <EmptyDataNotice />
                   ) : previewData.meta_ads ? (
                     <>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1.5rem", marginBottom: "2rem" }}>
-                        {[
+                      <KpiGrid
+                        items={[
                           { label: "Бюджет", value: formatCurrency(previewData.meta_ads.kpis.spend), delta: previewData.meta_ads.changes?.spend },
                           { label: "Импресии", value: formatNumber(previewData.meta_ads.kpis.impressions), delta: previewData.meta_ads.changes?.impressions },
                           { label: "Кликове", value: formatNumber(previewData.meta_ads.kpis.clicks), delta: previewData.meta_ads.changes?.clicks },
@@ -1824,55 +1633,43 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                           { label: "Обхват", value: formatNumber(previewData.meta_ads.kpis.reach), delta: previewData.meta_ads.changes?.reach },
                           { label: "CPA", value: formatCurrency(previewData.meta_ads.kpis.cpa), delta: previewData.meta_ads.changes?.cpa, invert: true },
                           { label: "ROAS", value: formatRatio(previewData.meta_ads.kpis.roas), delta: previewData.meta_ads.changes?.roas },
-                        ].map(({ label, value, delta, invert }) => (
-                          <div key={label} style={{ background: "#f8fafc", padding: "1rem", borderRadius: "0.5rem" }}>
-                            <span style={{ fontSize: "0.8rem", color: "#64748b", fontWeight: "600", textTransform: "uppercase" }}>{label}</span>
-                            <p style={{ fontSize: "1.45rem", fontWeight: "700", margin: "0.25rem 0 0 0", color: "#0f172a" }}>{value}</p>
-                            <ComparisonChange change={delta} invert={invert} />
-                          </div>
-                        ))}
+                        ]}
+                      />
+                      <div style={{ marginBottom: "1.5rem" }}>
+                        <ReportPanel title="Динамика на бюджета за периода">
+                          <MetricTrendChart
+                            accentColor={reportChartColor}
+                            points={previewData.meta_ads.trend.map((point) => ({ date: point.date, value: point.spend }))}
+                          />
+                        </ReportPanel>
                       </div>
-                      <div style={{ border: "1px solid #f1f5f9", padding: "1rem", borderRadius: "0.5rem", marginBottom: "1.5rem" }}>
-                        <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Динамика на бюджета за периода</p>
-                        <MetricTrendChart
-                          accentColor={reportChartColor}
-                          points={previewData.meta_ads.trend.map((point) => ({ date: point.date, value: point.spend }))}
-                        />
+                      <div style={{ marginBottom: "1.5rem" }}>
+                        <ReportPanel title="Кампании">
+                          <ReportTable
+                            rows={previewData.meta_ads.campaigns}
+                            getRowKey={(row) => row.campaign}
+                            columns={[
+                              { header: "Кампания", render: (row) => row.campaign },
+                              { header: "Бюджет", align: "right", render: (row) => <strong>{formatCurrency(row.spend)}</strong> },
+                              { header: "Конв.", align: "right", render: (row) => formatNumber(row.conversions) },
+                              { header: "CPA", align: "right", render: (row) => formatCurrency(row.cpa) },
+                              { header: "ROAS", align: "right", render: (row) => formatRatio(row.roas) },
+                            ]}
+                          />
+                        </ReportPanel>
                       </div>
-                      {previewData.meta_ads.campaigns.length > 0 && (
-                        <div style={{ border: "1px solid #f1f5f9", padding: "1.25rem", borderRadius: "0.5rem", marginBottom: "1.5rem" }}>
-                          <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>Кампании</p>
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-                            <thead>
-                              <tr style={{ borderBottom: "1px solid #e2e8f0", textAlign: "left" }}>
-                                <th style={{ paddingBottom: "0.4rem" }}>Кампания</th>
-                                <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>Бюджет</th>
-                                <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>Конв.</th>
-                                <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>CPA</th>
-                                <th style={{ paddingBottom: "0.4rem", textAlign: "right" }}>ROAS</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {previewData.meta_ads.campaigns.map((row) => (
-                                <tr key={row.campaign} style={{ borderBottom: "1px solid #f8fafc" }}>
-                                  <td style={{ padding: "0.4rem 0" }}>{row.campaign}</td>
-                                  <td style={{ padding: "0.4rem 0", textAlign: "right", fontWeight: "700" }}>{formatCurrency(row.spend)}</td>
-                                  <td style={{ padding: "0.4rem 0", textAlign: "right" }}>{formatNumber(row.conversions)}</td>
-                                  <td style={{ padding: "0.4rem 0", textAlign: "right" }}>{formatCurrency(row.cpa)}</td>
-                                  <td style={{ padding: "0.4rem 0", textAlign: "right" }}>{formatRatio(row.roas)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                      {previewData.meta_ads.campaigns.length === 0 && <EmptyDataNotice />}
                     </>
                   ) : null}
 
                   <SectionSummary noteType="meta_ads" />
-                </div>
+                </ReportSection>
               )}
+
+              {REPORT_EXTENSION_SECTIONS.map((section) => (
+                <ReportSection key={section.id} section={section} accentColor={reportThemeAccentColor}>
+                  <EmptyDataNotice />
+                </ReportSection>
+              ))}
 
             </div>
 

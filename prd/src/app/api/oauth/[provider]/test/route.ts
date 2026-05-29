@@ -17,18 +17,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     const { accessToken } = await req.json();
 
     if (!accessToken) {
-      return NextResponse.json({ error: "Въведете Access Token за тестване" }, { status: 400 });
+      return NextResponse.json({ error: "Въведете токен за достъп за проверка." }, { status: 400 });
     }
 
-    // Simulate an external API call to validate the token
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    const endpoint = provider === "google"
+      ? "https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=1"
+      : "https://graph.facebook.com/v19.0/me?fields=id";
+    const response = await fetch(endpoint, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    const data = await response.json();
 
-    // For the sake of the mock, we assume the token is valid if it starts with a specific prefix or is longer than 5 chars
-    if (accessToken.length < 5) {
-      return NextResponse.json({ error: "Невалиден тоукън (твърде кратък)" }, { status: 400 });
+    if (!response.ok || data.error) {
+      return NextResponse.json({ error: "Токенът не може да бъде потвърден от доставчика." }, { status: 400 });
     }
 
-    return NextResponse.json({ message: "Успешна връзка с външната услуга!" }, { status: 200 });
+    return NextResponse.json({ message: "Връзката е потвърдена успешно." }, { status: 200 });
   } catch (error) {
     console.error("OAuth test error:", error);
     return NextResponse.json({ error: "Връзката не можа да бъде проверена. Опитайте отново." }, { status: 500 });
