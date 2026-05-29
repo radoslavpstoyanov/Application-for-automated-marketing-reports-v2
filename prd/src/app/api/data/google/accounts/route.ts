@@ -1,7 +1,9 @@
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { PrismaClient } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { authOptions } from "@/lib/auth";
+import { getProviderAccessToken } from "@/lib/integrations/tokens";
+import { reportLogger } from "@/lib/report/logger";
 
 const prisma = new PrismaClient();
 
@@ -14,66 +16,16 @@ interface AccountSummary {
   propertySummaries?: PropertySummary[];
 }
 
-async function refreshGoogleToken(connection: { id: string; refreshToken: string | null }) {
-  if (!connection.refreshToken) return null;
-
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      refresh_token: connection.refreshToken,
-      grant_type: "refresh_token",
-    }),
-  });
-
-  const data = await res.json();
-  if (!data.access_token) return null;
-
-  const expiresAt = new Date(Date.now() + (data.expires_in ?? 3600) * 1000);
-  await prisma.oAuthConnection.update({
-    where: { id: connection.id },
-    data: { accessToken: data.access_token, tokenExpiresAt: expiresAt },
-  });
-
-  return data.access_token as string;
-}
-
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
     return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
   }
 
-  const userId = (session.user as any).id;
-  const connection = await prisma.oAuthConnection.findFirst({
-    where: { userId, provider: "google", connectionStatus: "active" },
-  });
-
-  if (!connection) {
-    return NextResponse.json({ error: "Няма свързан Google акаунт." }, { status: 404 });
-  }
-
-  // Auto-refresh token if expired
-  let accessToken = connection.accessToken;
-  if (connection.tokenExpiresAt && connection.tokenExpiresAt < new Date()) {
-    const refreshed = await refreshGoogleToken(connection);
-    if (refreshed) {
-      accessToken = refreshed;
-    } else {
-      // Mark as expired in DB
-      await prisma.oAuthConnection.update({
-        where: { id: connection.id },
-        data: { connectionStatus: "expired" },
-      });
-      return NextResponse.json({ error: "Google връзката е изтекла. Свържете акаунта отново." }, { status: 401 });
-    }
-  }
-
-  const headers = { Authorization: `Bearer ${accessToken}` };
-
   try {
+    const userId = (session.user as any).id as string;
+    const accessToken = await getProviderAccessToken(prisma, userId, "google");
+    const headers = { Authorization: `Bearer ${accessToken}` };
     const warnings: string[] = [];
     const properties = new Map<string, { id: string; name: string; websiteUrl: null }>();
     let pageToken = "";
@@ -89,7 +41,7 @@ export async function GET() {
       const ga4Data = await ga4Res.json();
 
       if (!ga4Res.ok) {
-        console.error("Google Analytics Admin API error:", ga4Data);
+        reportLogger.warn("Google Analytics Admin accounts fetch failed");
         warnings.push("Не можахме да заредим GA4 пропъртитата. Проверете дали Google Analytics Admin API е активиран и дали акаунтът има достъп.");
         break;
       }
@@ -112,20 +64,21 @@ export async function GET() {
     const gscRes = await fetch("https://www.googleapis.com/webmasters/v3/sites", { headers });
     const gscData = await gscRes.json();
     if (!gscRes.ok) {
-      console.error("Google Search Console API error:", gscData);
+      reportLogger.warn("Google Search Console sites fetch failed");
       warnings.push("Не можахме да заредим Search Console сайтовете. Проверете дали Search Console API е активиран и дали акаунтът има достъп.");
     }
 
     return NextResponse.json({
       ga4Properties: Array.from(properties.values()),
-      gscSites: (gscRes.ok ? (gscData.siteEntry ?? []) : []).map((s: any) => ({
-        siteUrl: s.siteUrl,
-        permissionLevel: s.permissionLevel,
+      gscSites: (gscRes.ok ? (gscData.siteEntry ?? []) : []).map((site: any) => ({
+        siteUrl: site.siteUrl,
+        permissionLevel: site.permissionLevel,
       })),
       warnings,
     });
-  } catch (err) {
-    console.error("Google accounts fetch error:", err);
-    return NextResponse.json({ error: "Google акаунтите не могат да бъдат заредени в момента." }, { status: 500 });
+  } catch (error: any) {
+    reportLogger.warn("Google accounts fetch failed");
+    const status = error.message?.includes("връзката") || error.message?.includes("интеграция") ? 401 : 500;
+    return NextResponse.json({ error: error.message || "Google акаунтите не могат да бъдат заредени в момента." }, { status });
   }
 }

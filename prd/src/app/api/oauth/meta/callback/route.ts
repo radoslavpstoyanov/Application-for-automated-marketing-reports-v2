@@ -1,5 +1,8 @@
 import { PrismaClient } from "@prisma/client";
 import { NextResponse, NextRequest } from "next/server";
+import { encryptSecret } from "@/lib/integrations/tokens";
+import { parseOAuthState } from "@/lib/integrations/oauth-state";
+import { reportLogger } from "@/lib/report/logger";
 
 const prisma = new PrismaClient();
 
@@ -16,7 +19,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const userId = Buffer.from(state, "base64url").toString();
+    const userId = parseOAuthState(state);
 
     // Step 1: Exchange code for short-lived token
     const tokenRes = await fetch(
@@ -31,7 +34,7 @@ export async function GET(req: NextRequest) {
     const tokenData = await tokenRes.json();
 
     if (!tokenData.access_token) {
-      console.error("Meta token exchange failed:", tokenData);
+      reportLogger.warn("Meta token exchange failed");
       return NextResponse.redirect(new URL("/integrations?error=meta_token", base));
     }
 
@@ -61,7 +64,7 @@ export async function GET(req: NextRequest) {
       await prisma.oAuthConnection.update({
         where: { id: existing.id },
         data: {
-          accessToken: finalToken,
+          accessToken: encryptSecret(finalToken)!,
           tokenExpiresAt: expiresAt,
           connectionStatus: "active",
         },
@@ -71,7 +74,7 @@ export async function GET(req: NextRequest) {
         data: {
           userId,
           provider: "meta",
-          accessToken: finalToken,
+          accessToken: encryptSecret(finalToken)!,
           tokenExpiresAt: expiresAt,
           connectionStatus: "active",
         },
@@ -80,7 +83,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.redirect(new URL("/integrations?success=meta", base));
   } catch (err) {
-    console.error("Meta OAuth callback error:", err);
+    reportLogger.warn("Meta OAuth callback failed");
     return NextResponse.redirect(new URL("/integrations?error=meta_server", base));
   }
 }

@@ -1,5 +1,8 @@
 import { PrismaClient } from "@prisma/client";
 import { NextResponse, NextRequest } from "next/server";
+import { encryptSecret } from "@/lib/integrations/tokens";
+import { parseOAuthState } from "@/lib/integrations/oauth-state";
+import { reportLogger } from "@/lib/report/logger";
 
 const prisma = new PrismaClient();
 
@@ -16,8 +19,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Decode userId from state
-    const userId = Buffer.from(state, "base64url").toString();
+    const userId = parseOAuthState(state);
 
     // Exchange authorization code for tokens
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -35,7 +37,7 @@ export async function GET(req: NextRequest) {
     const tokenData = await tokenRes.json();
 
     if (!tokenData.access_token) {
-      console.error("Google token exchange failed:", tokenData);
+      reportLogger.warn("Google token exchange failed");
       return NextResponse.redirect(new URL("/integrations?error=google_token", base));
     }
 
@@ -50,9 +52,9 @@ export async function GET(req: NextRequest) {
       await prisma.oAuthConnection.update({
         where: { id: existing.id },
         data: {
-          accessToken: tokenData.access_token,
+          accessToken: encryptSecret(tokenData.access_token)!,
           // Only update refresh token if Google sends a new one
-          refreshToken: tokenData.refresh_token ?? existing.refreshToken,
+          refreshToken: tokenData.refresh_token ? encryptSecret(tokenData.refresh_token) : existing.refreshToken,
           tokenExpiresAt: expiresAt,
           connectionStatus: "active",
         },
@@ -62,8 +64,8 @@ export async function GET(req: NextRequest) {
         data: {
           userId,
           provider: "google",
-          accessToken: tokenData.access_token,
-          refreshToken: tokenData.refresh_token ?? null,
+          accessToken: encryptSecret(tokenData.access_token)!,
+          refreshToken: encryptSecret(tokenData.refresh_token),
           tokenExpiresAt: expiresAt,
           connectionStatus: "active",
         },
@@ -72,7 +74,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.redirect(new URL("/integrations?success=google", base));
   } catch (err) {
-    console.error("Google OAuth callback error:", err);
+    reportLogger.warn("Google OAuth callback failed");
     return NextResponse.redirect(new URL("/integrations?error=google_server", base));
   }
 }

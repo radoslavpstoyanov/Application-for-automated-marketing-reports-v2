@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { createOAuthState } from "@/lib/integrations/oauth-state";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -9,8 +10,7 @@ export async function GET() {
   }
 
   const userId = (session.user as any).id;
-  // Encode userId in state for CSRF protection
-  const state = Buffer.from(userId).toString("base64url");
+  const state = createOAuthState(userId);
 
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,

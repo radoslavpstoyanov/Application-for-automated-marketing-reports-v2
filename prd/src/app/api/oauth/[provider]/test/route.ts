@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { reportLogger } from "@/lib/report/logger";
 
 export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> }) {
   try {
@@ -36,7 +37,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
 
     return NextResponse.json({ message: "Връзката е потвърдена успешно." }, { status: 200 });
   } catch (error) {
-    console.error("OAuth test error:", error);
+    reportLogger.warn("OAuth token test failed");
     return NextResponse.json({ error: "Връзката не можа да бъде проверена. Опитайте отново." }, { status: 500 });
   }
 }

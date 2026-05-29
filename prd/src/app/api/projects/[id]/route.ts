@@ -4,6 +4,12 @@ import { authOptions } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
 const prisma = new PrismaClient();
+const SOURCE_PROVIDERS: Record<string, string> = {
+  gsc: "google",
+  ga4: "google",
+  google_ads: "google",
+  meta_ads: "meta",
+};
 
 interface SourceInput {
   sourceType: string;
@@ -64,20 +70,33 @@ export async function PATCH(req: Request, { params }: ProjectPatchProps) {
           oauthConnectionId: src.oauthConnectionId === "sandbox" ? null : (src.oauthConnectionId || null),
         }))
       : null;
+    const invalidSource = sourceInputs?.find((src) => !SOURCE_PROVIDERS[src.sourceType]);
+    if (invalidSource) {
+      return NextResponse.json({ error: "Избраният източник на данни не се поддържа." }, { status: 400 });
+    }
     const sourceConnectionIds = sourceInputs
       ? [...new Set(sourceInputs.map((src) => src.oauthConnectionId).filter((value): value is string => !!value))]
       : [];
 
     if (sourceConnectionIds.length > 0) {
-      const ownedConnections = await prisma.oAuthConnection.count({
+      const ownedConnections = await prisma.oAuthConnection.findMany({
         where: {
           id: { in: sourceConnectionIds },
           userId,
         },
+        select: { id: true, provider: true },
       });
 
-      if (ownedConnections !== sourceConnectionIds.length) {
+      if (ownedConnections.length !== sourceConnectionIds.length) {
         return NextResponse.json({ error: "Избраната интеграция не е достъпна за този профил." }, { status: 400 });
+      }
+
+      const providerByConnection = new Map(ownedConnections.map((connection) => [connection.id, connection.provider]));
+      const providerMismatch = sourceInputs?.some((src) => (
+        src.oauthConnectionId && providerByConnection.get(src.oauthConnectionId) !== SOURCE_PROVIDERS[src.sourceType]
+      ));
+      if (providerMismatch) {
+        return NextResponse.json({ error: "Избраната интеграция не отговаря на източника на данни." }, { status: 400 });
       }
     }
 

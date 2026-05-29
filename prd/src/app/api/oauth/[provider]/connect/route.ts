@@ -2,6 +2,8 @@ import { PrismaClient } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { encryptSecret } from "@/lib/integrations/tokens";
+import { reportLogger } from "@/lib/report/logger";
 
 const prisma = new PrismaClient();
 
@@ -35,8 +37,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       await prisma.oAuthConnection.update({
         where: { id: existing.id },
         data: { 
-          accessToken,
-          refreshToken: refreshToken || null,
+          accessToken: encryptSecret(accessToken)!,
+          refreshToken: encryptSecret(refreshToken),
           connectionStatus: "active"
         }
       });
@@ -45,8 +47,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
         data: {
           userId,
           provider,
-          accessToken,
-          refreshToken: refreshToken || null,
+          accessToken: encryptSecret(accessToken)!,
+          refreshToken: encryptSecret(refreshToken),
           connectionStatus: "active"
         }
       });
@@ -54,7 +56,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
 
     return NextResponse.json({ message: "Успешно свързване" }, { status: 200 });
   } catch (error) {
-    console.error("OAuth connect error:", error);
+    reportLogger.warn("Manual OAuth connect failed");
     return NextResponse.json({ error: "Интеграцията не можа да бъде свързана. Опитайте отново." }, { status: 500 });
   }
 }

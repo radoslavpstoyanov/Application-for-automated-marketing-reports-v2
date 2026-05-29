@@ -1,7 +1,9 @@
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { PrismaClient } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { authOptions } from "@/lib/auth";
+import { getProviderAccessToken } from "@/lib/integrations/tokens";
+import { reportLogger } from "@/lib/report/logger";
 
 const prisma = new PrismaClient();
 
@@ -11,37 +13,24 @@ export async function GET() {
     return NextResponse.json({ error: "Сесията е изтекла. Влезте отново." }, { status: 401 });
   }
 
-  const userId = (session.user as any).id;
-  const connection = await prisma.oAuthConnection.findFirst({
-    where: { userId, provider: "meta", connectionStatus: "active" },
-  });
-
-  if (!connection) {
-    return NextResponse.json({ error: "Няма свързан Meta акаунт." }, { status: 404 });
-  }
-
   try {
-    // Check token expiry
-    if (connection.tokenExpiresAt && connection.tokenExpiresAt < new Date()) {
-      await prisma.oAuthConnection.update({
-        where: { id: connection.id },
-        data: { connectionStatus: "expired" },
-      });
-      return NextResponse.json({ error: "Meta връзката е изтекла. Свържете акаунта отново." }, { status: 401 });
-    }
+    const userId = (session.user as any).id as string;
+    const accessToken = await getProviderAccessToken(prisma, userId, "meta");
+    const params = new URLSearchParams({
+      fields: "id,name,account_status,currency",
+      limit: "100",
+    });
 
-    // Fetch Ad Accounts via Graph API
-    const res = await fetch(
-      `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status,currency&limit=100&access_token=${connection.accessToken}`
-    );
-    const data = await res.json();
+    const response = await fetch(`https://graph.facebook.com/v19.0/me/adaccounts?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const data = await response.json();
 
-    if (data.error) {
-      console.error("Meta Graph API error:", data.error);
+    if (!response.ok || data.error) {
+      reportLogger.warn("Meta ad accounts fetch failed");
       return NextResponse.json({ error: "Meta акаунтите не могат да бъдат заредени. Проверете връзката си." }, { status: 400 });
     }
 
-    // account_status: 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, etc.
     const statusLabel: Record<number, string> = {
       1: "Активен",
       2: "Деактивиран",
@@ -51,15 +40,16 @@ export async function GET() {
     };
 
     return NextResponse.json({
-      adAccounts: (data.data ?? []).map((a: any) => ({
-        id: a.id,             // e.g. "act_123456789"
-        name: a.name,
-        status: statusLabel[a.account_status] ?? "Непознат",
-        currency: a.currency,
+      adAccounts: (data.data ?? []).map((account: any) => ({
+        id: account.id,
+        name: account.name,
+        status: statusLabel[account.account_status] ?? "Непознат",
+        currency: account.currency,
       })),
     });
-  } catch (err) {
-    console.error("Meta accounts fetch error:", err);
-    return NextResponse.json({ error: "Meta акаунтите не могат да бъдат заредени в момента." }, { status: 500 });
+  } catch (error: any) {
+    reportLogger.warn("Meta accounts fetch failed");
+    const status = error.message?.includes("връзката") || error.message?.includes("интеграция") ? 401 : 500;
+    return NextResponse.json({ error: error.message || "Meta акаунтите не могат да бъдат заредени в момента." }, { status });
   }
 }

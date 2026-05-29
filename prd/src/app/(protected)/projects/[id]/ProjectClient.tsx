@@ -48,6 +48,12 @@ const REPORT_THEMES: Record<string, ReportTheme> = {
 };
 
 const getReportTheme = (theme: string) => REPORT_THEMES[theme] ?? REPORT_THEMES["Lead Group"];
+const SOURCE_API_ENDPOINTS: Record<PreviewSourceType, string> = {
+  gsc: "/api/gsc",
+  ga4: "/api/ga4",
+  google_ads: "/api/google-ads",
+  meta_ads: "/api/meta-ads",
+};
 
 interface ProjectSource {
   sourceType: string;
@@ -337,6 +343,12 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     ...(addition.meta_ads ? { meta_ads: addition.meta_ads } : {}),
     errors: { ...base.errors, ...addition.errors },
   });
+  const createPreviewAddition = (sourceType: string, data: unknown): PreviewData => {
+    if (sourceType === "gsc") return { gsc: data as PreviewData["gsc"], errors: {} };
+    if (sourceType === "ga4") return { ga4: data as PreviewData["ga4"], errors: {} };
+    if (sourceType === "meta_ads") return { meta_ads: data as PreviewData["meta_ads"], errors: {} };
+    return { errors: {} };
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -435,20 +447,28 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       const results = await Promise.all(sourcesToFetch.map(async (source) => {
         let addition: PreviewData;
         try {
-          const response = await fetch(`/api/projects/${project.id}/preview`, {
+          const endpoint = SOURCE_API_ENDPOINTS[source.sourceType as PreviewSourceType];
+          if (!endpoint) {
+            throw new Error("Неподдържан източник на данни.");
+          }
+
+          const response = await fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              projectId: project.id,
               reportingStart: snapshot.reportingStart,
               reportingEnd: snapshot.reportingEnd,
               comparisonStart: snapshot.comparisonStart || null,
               comparisonEnd: snapshot.comparisonEnd || null,
-              sources: [source],
+              externalAccountId: source.externalAccountId,
+              oauthConnectionId: source.oauthConnectionId,
+              primaryConversion: source.primaryConversion ?? null,
             }),
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "Данните не могат да бъдат заредени.");
-          addition = data as PreviewData;
+          addition = createPreviewAddition(source.sourceType, data);
           reportLogger.debug("Preview source loaded", { sourceType: source.sourceType });
         } catch (err: any) {
           addition = { errors: { [source.sourceType]: err.message || "Данните не могат да бъдат заредени." } };
