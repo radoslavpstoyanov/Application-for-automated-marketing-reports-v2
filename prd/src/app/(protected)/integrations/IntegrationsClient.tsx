@@ -22,6 +22,11 @@ interface GSCSite {
   permissionLevel: string;
 }
 
+interface GoogleAdsAccount {
+  id: string;
+  name: string;
+}
+
 interface MetaAdAccount {
   id: string;
   name: string;
@@ -32,6 +37,7 @@ interface MetaAdAccount {
 interface GoogleAccounts {
   ga4Properties: GA4Property[];
   gscSites: GSCSite[];
+  googleAdsAccounts: GoogleAdsAccount[];
   warnings?: string[];
 }
 
@@ -278,9 +284,22 @@ export default function IntegrationsClient({
                       ))}
                     </div>
                   )}
-                  {googleAccounts.ga4Properties.length === 0 && googleAccounts.gscSites.length === 0 && (
+                  {googleAccounts.googleAdsAccounts.length > 0 && (
+                    <div>
+                      <p style={sectionLabel}>Google Ads Акаунти ({googleAccounts.googleAdsAccounts.length})</p>
+                      {googleAccounts.googleAdsAccounts.map((a) => (
+                        <div key={a.id} style={{ ...accountItem, marginBottom: "0.35rem" }}>
+                          <span>{a.name}</span>
+                          <span style={{ color: "var(--muted-foreground)", fontSize: "0.78rem" }}>
+                            {a.id}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {googleAccounts.ga4Properties.length === 0 && googleAccounts.gscSites.length === 0 && googleAccounts.googleAdsAccounts.length === 0 && (
                     <p style={{ fontSize: "0.85rem", color: "var(--muted-foreground)" }}>
-                      Не са намерени GA4 пропъртита или GSC сайтове в този акаунт.
+                      Не са намерени GA4 пропъртита, GSC сайтове или Google Ads акаунти в този акаунт.
                     </p>
                   )}
                 </>

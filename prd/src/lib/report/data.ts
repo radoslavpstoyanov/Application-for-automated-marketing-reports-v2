@@ -37,6 +37,26 @@ interface Ga4Row {
   metricValues?: Array<{ value?: string }>;
 }
 
+interface GoogleAdsMetrics {
+  costMicros?: string | number;
+  clicks?: string | number;
+  impressions?: string | number;
+  conversions?: string | number;
+  conversionsValue?: string | number;
+}
+
+interface GoogleAdsRow {
+  campaign?: {
+    id?: string;
+    name?: string;
+  };
+  segments?: {
+    date?: string;
+    conversionActionName?: string;
+  };
+  metrics?: GoogleAdsMetrics;
+}
+
 interface MetaAction {
   action_type: string;
   value: string;
@@ -66,6 +86,9 @@ export function sourceFeedback(sourceType: SourceType, message?: string) {
   };
   if (message?.includes("отне твърде много време")) {
     return `Зареждането от ${labels[sourceType]} отне твърде много време. Опитайте отново.`;
+  }
+  if (sourceType === "google_ads" && message && /GOOGLE_ADS|Developer Token|Google Ads API|insufficient authentication scopes|permission/i.test(message)) {
+    return message;
   }
   if (message && /връзката|интеграция|Свържете/.test(message)) return message;
 
@@ -231,6 +254,223 @@ export async function fetchGa4Data(token: string, source: ReportSourceInput, per
   };
 }
 
+function toGoogleAdsNumber(value: string | number | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function microsToCurrency(value: string | number | undefined) {
+  return toGoogleAdsNumber(value) / 1_000_000;
+}
+
+function normalizeCustomerId(customerId: string) {
+  const normalized = customerId.replace(/^customers\//, "").replace(/\D/g, "");
+  if (!normalized) {
+    throw new Error("Невалиден Google Ads Customer ID.");
+  }
+  return normalized;
+}
+
+function escapeGaqlString(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function getGoogleAdsConfig() {
+  const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+  if (!developerToken) {
+    throw new Error("Липсва GOOGLE_ADS_DEVELOPER_TOKEN. Добавете Google Ads Developer Token в .env.local и рестартирайте dev server-а.");
+  }
+
+  return {
+    apiVersion: process.env.GOOGLE_ADS_API_VERSION || "v22",
+    developerToken,
+    loginCustomerId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+      ? normalizeCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID)
+      : undefined,
+  };
+}
+
+async function searchGoogleAds(token: string, customerId: string, query: string) {
+  const config = getGoogleAdsConfig();
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    "developer-token": config.developerToken,
+  };
+
+  if (config.loginCustomerId) {
+    headers["login-customer-id"] = config.loginCustomerId;
+  }
+
+  const response = await fetchWithRetry(
+    `https://googleads.googleapis.com/${config.apiVersion}/customers/${customerId}/googleAds:searchStream`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query }),
+    },
+    15000
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error?.message || "Неуспешно извличане на Google Ads данни.");
+  }
+
+  const chunks = Array.isArray(data) ? data : [data];
+  return chunks.flatMap((chunk) => (chunk.results ?? []) as GoogleAdsRow[]);
+}
+
+function periodCondition(period: Period) {
+  return `segments.date BETWEEN '${period.startDate}' AND '${period.endDate}'`;
+}
+
+function aggregateGoogleAdsRows(rows: GoogleAdsRow[]) {
+  return rows.reduce(
+    (total, row) => {
+      const metrics = row.metrics ?? {};
+      total.spend += microsToCurrency(metrics.costMicros);
+      total.clicks += toGoogleAdsNumber(metrics.clicks);
+      total.impressions += toGoogleAdsNumber(metrics.impressions);
+      total.conversions += toGoogleAdsNumber(metrics.conversions);
+      total.value += toGoogleAdsNumber(metrics.conversionsValue);
+      return total;
+    },
+    { spend: 0, clicks: 0, impressions: 0, conversions: 0, value: 0 }
+  );
+}
+
+async function fetchGoogleAdsTrafficRows(token: string, customerId: string, period: Period) {
+  return searchGoogleAds(token, customerId, `
+    SELECT
+      segments.date,
+      metrics.cost_micros,
+      metrics.clicks,
+      metrics.impressions
+    FROM customer
+    WHERE ${periodCondition(period)}
+    ORDER BY segments.date
+  `);
+}
+
+async function fetchGoogleAdsConversionRows(token: string, customerId: string, period: Period, conversionName: string) {
+  return searchGoogleAds(token, customerId, `
+    SELECT
+      segments.date,
+      metrics.conversions,
+      metrics.conversions_value
+    FROM customer
+    WHERE ${periodCondition(period)}
+      AND segments.conversion_action_name = '${escapeGaqlString(conversionName)}'
+    ORDER BY segments.date
+  `);
+}
+
+async function fetchGoogleAdsCampaignTrafficRows(token: string, customerId: string, period: Period) {
+  return searchGoogleAds(token, customerId, `
+    SELECT
+      campaign.id,
+      campaign.name,
+      metrics.cost_micros,
+      metrics.clicks,
+      metrics.impressions
+    FROM campaign
+    WHERE ${periodCondition(period)}
+    ORDER BY metrics.cost_micros DESC
+    LIMIT 20
+  `);
+}
+
+async function fetchGoogleAdsCampaignConversionRows(token: string, customerId: string, period: Period, conversionName: string) {
+  return searchGoogleAds(token, customerId, `
+    SELECT
+      campaign.id,
+      campaign.name,
+      metrics.conversions,
+      metrics.conversions_value
+    FROM campaign
+    WHERE ${periodCondition(period)}
+      AND segments.conversion_action_name = '${escapeGaqlString(conversionName)}'
+    LIMIT 200
+  `);
+}
+
+async function fetchGoogleAdsKpis(token: string, customerId: string, source: ReportSourceInput, period: Period) {
+  const [trafficRows, conversionRows] = await Promise.all([
+    fetchGoogleAdsTrafficRows(token, customerId, period),
+    fetchGoogleAdsConversionRows(token, customerId, period, source.primaryConversion!),
+  ]);
+
+  const traffic = aggregateGoogleAdsRows(trafficRows);
+  const conversion = aggregateGoogleAdsRows(conversionRows);
+
+  return {
+    spend: traffic.spend,
+    clicks: traffic.clicks,
+    impressions: traffic.impressions,
+    cpc: traffic.clicks > 0 ? traffic.spend / traffic.clicks : 0,
+    conversions: conversion.conversions,
+    cpa: calculateCpa(traffic.spend, conversion.conversions),
+    roas: calculateRoas(conversion.value, traffic.spend),
+  };
+}
+
+export async function fetchGoogleAdsData(token: string, source: ReportSourceInput, period: Period, comparison?: Period) {
+  const customerId = normalizeCustomerId(source.externalAccountId);
+  const [current, previous, trendRows, campaignTrafficRows, campaignConversionRows] = await Promise.all([
+    fetchGoogleAdsKpis(token, customerId, source, period),
+    comparison ? fetchGoogleAdsKpis(token, customerId, source, comparison) : Promise.resolve(undefined),
+    fetchGoogleAdsTrafficRows(token, customerId, period),
+    fetchGoogleAdsCampaignTrafficRows(token, customerId, period),
+    fetchGoogleAdsCampaignConversionRows(token, customerId, period, source.primaryConversion!),
+  ]);
+
+  const conversionsByCampaign = new Map<string, { conversions: number; value: number }>();
+  campaignConversionRows.forEach((row) => {
+    const id = row.campaign?.id ?? row.campaign?.name ?? "";
+    const previousValue = conversionsByCampaign.get(id) ?? { conversions: 0, value: 0 };
+    conversionsByCampaign.set(id, {
+      conversions: previousValue.conversions + toGoogleAdsNumber(row.metrics?.conversions),
+      value: previousValue.value + toGoogleAdsNumber(row.metrics?.conversionsValue),
+    });
+  });
+
+  return {
+    conversionName: source.primaryConversion!,
+    kpis: current,
+    changes: previous
+      ? {
+          spend: calculateMetricChange(current.spend, previous.spend),
+          clicks: calculateMetricChange(current.clicks, previous.clicks),
+          impressions: calculateMetricChange(current.impressions, previous.impressions),
+          cpc: calculateMetricChange(current.cpc, previous.cpc),
+          conversions: calculateMetricChange(current.conversions, previous.conversions),
+          cpa: calculateMetricChange(current.cpa, previous.cpa),
+          roas: calculateMetricChange(current.roas, previous.roas),
+        }
+      : undefined,
+    trend: trendRows.map((row) => ({
+      date: row.segments?.date ?? "",
+      spend: microsToCurrency(row.metrics?.costMicros),
+    })),
+    campaigns: campaignTrafficRows.map((row) => {
+      const spend = microsToCurrency(row.metrics?.costMicros);
+      const id = row.campaign?.id ?? row.campaign?.name ?? "";
+      const conversion = conversionsByCampaign.get(id) ?? { conversions: 0, value: 0 };
+
+      return {
+        campaign: row.campaign?.name ?? "",
+        spend,
+        clicks: toGoogleAdsNumber(row.metrics?.clicks),
+        impressions: toGoogleAdsNumber(row.metrics?.impressions),
+        conversions: conversion.conversions,
+        cpa: calculateCpa(spend, conversion.conversions),
+        roas: calculateRoas(conversion.value, spend),
+      };
+    }),
+  };
+}
+
 function getMetaValue(actions: MetaAction[] | undefined, actionType: string) {
   return Number(actions?.find((action) => action.action_type === actionType)?.value ?? 0);
 }
@@ -328,14 +568,11 @@ export async function fetchReportSourceData(
   period: Period,
   comparison?: Period
 ) {
-  if (source.sourceType === "google_ads") {
-    throw new Error("Google Ads все още не е настроен за извличане на данни.");
-  }
-
   const provider = providerForSource(source.sourceType);
   const token = await getProviderAccessToken(prisma, userId, provider);
 
   if (source.sourceType === "gsc") return fetchGscData(token, source, period, comparison);
   if (source.sourceType === "ga4") return fetchGa4Data(token, source, period, comparison);
+  if (source.sourceType === "google_ads") return fetchGoogleAdsData(token, source, period, comparison);
   return fetchMetaData(token, source, period, comparison);
 }

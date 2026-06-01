@@ -24,9 +24,9 @@ export function ComparisonChange({ change, invert = false }: { change?: MetricCh
 
 export function KpiGrid({ items }: { items: KpiItem[] }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1.2rem", marginBottom: "2rem" }}>
+    <div className="pdf-avoid-break" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1.2rem", marginBottom: "2rem", breakInside: "avoid", pageBreakInside: "avoid" }}>
       {items.map(({ label, value, delta, invert }) => (
-        <div key={label} style={{ background: "#f8fafc", padding: "1.2rem", borderRadius: "8px" }}>
+        <div key={label} style={{ background: "#f8fafc", padding: "1.2rem", borderRadius: "8px", breakInside: "avoid", pageBreakInside: "avoid" }}>
           <div style={{ fontSize: "0.78rem", fontWeight: "700", color: "#64748b", textTransform: "uppercase" }}>{label}</div>
           <div style={{ fontSize: "1.65rem", fontWeight: "700", marginTop: "0.35rem" }}>{value}</div>
           <ComparisonChange change={delta} invert={invert} />
@@ -59,7 +59,7 @@ export function ReportSection({
 
 export function ReportPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div style={{ border: "1px solid #f1f5f9", padding: "1.25rem", borderRadius: "0.5rem" }}>
+    <div className="pdf-avoid-break" style={{ border: "1px solid #f1f5f9", padding: "1.25rem", borderRadius: "0.5rem", breakInside: "avoid", pageBreakInside: "avoid" }}>
       <p style={{ fontSize: "0.85rem", fontWeight: "700", margin: "0 0 1rem 0" }}>{title}</p>
       {children}
     </div>
@@ -84,7 +84,7 @@ export function ReportTable<Row>({
   if (rows.length === 0) return <EmptyDataNotice />;
 
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+    <table className="pdf-avoid-break" style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", breakInside: "avoid", pageBreakInside: "avoid" }}>
       <thead>
         <tr style={{ borderBottom: "1px solid #e2e8f0", textAlign: "left" }}>
           {columns.map((column) => (
@@ -108,12 +108,12 @@ export function ReportTable<Row>({
 }
 
 export function EmptyDataNotice() {
-  return <p className="empty-data-notice">Няма налични данни за избрания период.</p>;
+  return <p className="empty-data-notice pdf-avoid-break">Няма налични данни за избрания период.</p>;
 }
 
 export function SectionErrorNotice({ message }: { message: string }) {
   return (
-    <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem" }}>
+    <div className="pdf-avoid-break" style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "0.5rem", padding: "1rem", color: "#be123c", marginBottom: "1.5rem", breakInside: "avoid", pageBreakInside: "avoid" }}>
       {message}
     </div>
   );
@@ -121,7 +121,7 @@ export function SectionErrorNotice({ message }: { message: string }) {
 
 export function SectionLoadingNotice({ label, accentColor }: { label: string; accentColor: string }) {
   return (
-    <div className="section-loading-notice" role="status" aria-live="polite">
+    <div className="section-loading-notice pdf-avoid-break" role="status" aria-live="polite">
       <span
         aria-hidden="true"
         style={{

@@ -39,57 +39,65 @@ npm run dev
 
 ## Task 06: Незавършени или проблемни части
 
+### Изпълнени
+
+1. Записът на нови data sources при mock/sandbox сценарий вече не нарушава foreign key constraints.
+
+   `ProjectSource.oauthConnectionId` е nullable, `ProjectClient.tsx` подава `null`, когато няма активна OAuth връзка, а `PATCH /api/projects/[id]` нормализира legacy стойност `"sandbox"` към `null` преди запис.
+
+2. Google Ads report интеграцията е имплементирана на code level.
+
+   Добавени са Google Ads API env настройки, `adwords` OAuth scope, GAQL заявки към `googleAds:searchStream`, KPI изчисления, дневен spend trend и campaigns table в preview-то. За окончателно приемане е нужна live проверка с валиден `GOOGLE_ADS_DEVELOPER_TOKEN`, достъп до Google Ads customer и повторно свързан Google OAuth акаунт.
+
+3. Primary Conversion вече е част от project source конфигурацията.
+
+   `ProjectSource.primaryConversion` съществува в Prisma модела, управлява се в `ProjectClient` state, записва се през `PATCH /api/projects/[id]`, зарежда се обратно при отваряне на проекта и се подава към GA4, Google Ads и Meta Ads data заявките. При смяна на акаунт conversion стойността се изчиства, за да не остане избор от стар акаунт.
+
+4. Preview вече работи като snapshot.
+
+   При `Generate Preview` се създава `previewSnapshot`, който фиксира заглавие, тема, лого, периоди, sources и notes. Preview и PDF export рендерират от snapshot-а, а промени след това маркират preview-то като outdated и блокират download, докато не се генерира нов преглед.
+
+5. PDF export вече е директно генериране на PDF, не browser print.
+
+   `Download PDF` използва `html2canvas` + `jsPDF`, пази файл с име от PDF title, работи само с актуален preview snapshot и има допълнителни `break-inside/page-break-inside` правила за report секции, KPI grid-ове, панели, таблици, графики и съобщения.
+
+6. Редът на report секциите е правилен.
+
+   `REPORT_SECTION_DEFINITIONS` задава ред `GSC -> Google Ads -> Meta Ads -> GA4`; навигацията използва тази дефиниция, preview прилага CSS `order`, а PDF export сортира секциите по `data-pdf-order`.
+
+7. Периодът не се показва като отделен елемент на корицата.
+
+   Датите се рендерират само чрез `SectionPeriod` вътре във всяка report секция. Cover/header частта показва PDF title, logo placeholder/logo и brand label, без автоматично добавен reporting/comparison period.
+
+8. Графиките вече следват избраната report тема.
+
+   Chart компонентите получават `reportTheme.primary`, вместо фиксиран `REPORT_CHART_COLOR`. Lead Group използва зеления акцент, а Vectory използва синия акцент и в графиките.
+
+9. Секции без данни вече не се показват като празни report секции.
+
+   Preview/PDF рендерира source секция само когато тя зарежда, има API/config грешка за диагностика или има реални данни. Enabled source без върнати данни вече не добавя празна клиентска секция с `Няма налични данни...`.
+
+10. Report history е имплементиран като metadata-only MVP.
+
+   При успешно client-side PDF download се създава `GeneratedReport` запис с име на файла, потребител и дата. Project page зарежда последните отчети и показва панел `История на отчети`. Самият PDF файл засега не се съхранява на сървър, затова няма повторно сваляне без бъдещ storage слой.
+
 ### Критични
 
-1. Записът на нови data sources е невалиден при mock/sandbox сценарий.
-
-   `ProjectClient.tsx` създава нови source записи с `oauthConnectionId: "sandbox"`, но `ProjectSource.oauthConnectionId` е задължителен foreign key към реален `OAuthConnection`. Save ще се провали при опит за запис на такъв източник.
-
-2. Google Ads няма реална report интеграция.
-
-   UI конфигурацията за `google_ads` е добавена, но preview-то още не извлича реални Ads KPI, трендове и кампании.
-
-3. Primary Conversion не е част от данните.
-
-   В UI има dropdown-и за GA4 и Meta Ads, но изборът не се държи в state, не се записва през API и няма поле в модела. Не може да се изпълни изискването за валидиране и персистиране на конверсия.
-
-4. Preview не е snapshot.
-
-   След `Generate Preview` отчетът продължава да рендерира от текущия edit state. Всяка последваща промяна по бележки, тема или заглавие изменя preview-то без повторно генериране.
-
-5. PDF export е само browser print.
-
-   `Download PDF` изпълнява `window.print()`. Липсват контролирано генериране на PDF, коректно име на файл, актуалност спрямо последното preview и стабилни page break правила.
+Няма останали критични Task 06 точки във fix списъка.
 
 ### Несъответствия със спецификацията
 
-1. Редът на report секциите е грешен.
+Няма останали code-level несъответствия със спецификацията във fix списъка. Остават live/manual проверки и отложената report history функционалност.
 
-   Текущо: `GSC -> GA4 -> Meta Ads`.
+## Task 07: Google Ads live валидация
 
-   Изисквано: `GSC -> Google Ads -> Meta Ads -> GA4`.
+Google Ads вече има backend заявки и preview rendering, но не може да бъде приет като live-валидирана интеграция без реални Google Ads API credentials и акаунт с кампании.
 
-2. Периодът се показва в горната част/корицата на preview-то.
-
-   Task 08 и Task 09 изискват датите да не се добавят автоматично на корицата.
-
-3. Темите не следват брандовите материали.
-
-   Текущият mapping използва син акцент за Lead Group и тюркоазен за Vectory. Брандовите assets и Task 12 задават зелена идентичност за Lead Group и синя за Vectory.
-
-4. Отварянето на проект променя `updatedAt`.
-
-   Project page обновява `updatedAt` при посещение, което прави Dashboard сортирането и надписа за последна промяна неточни. Полето трябва да се актуализира при реален Save/конфигурационна промяна.
-
-## Task 07: Отложена Google Ads интеграция
-
-Google Ads не може да бъде приет като завършен за Task 07, докато не се добави реалното извличане на данни. В момента секцията приема `Customer ID` и `Primary Conversion`, но при preview връща съобщение за липсваща Google Ads API конфигурация.
-
-Необходимо за продължаване:
+Необходимо за live проверка:
 
 1. Да се получи Google Ads API `Developer Token` от Google Ads Manager Account (MCC) с достъп до реални акаунти, ако ще се тестват production кампании.
 
-2. В Google OAuth flow да се добави Ads scope:
+2. В Google OAuth flow вече е добавен Ads scope:
 
 ```text
 https://www.googleapis.com/auth/adwords
@@ -100,11 +108,12 @@ https://www.googleapis.com/auth/adwords
 ```env
 GOOGLE_ADS_DEVELOPER_TOKEN=
 GOOGLE_ADS_LOGIN_CUSTOMER_ID=
+GOOGLE_ADS_API_VERSION=v22
 ```
 
 `GOOGLE_ADS_LOGIN_CUSTOMER_ID` е нужен, когато клиентският Ads акаунт се достъпва през manager акаунт.
 
-4. Да се имплементират заявки към Google Ads API за:
+4. Имплементирани са заявки към Google Ads API за:
 
 - Spend, Clicks, Impressions, CPC, Conversions, CPA и ROAS.
 - Дневен тренд за избрания период и периода за сравнение.
@@ -117,7 +126,7 @@ GOOGLE_ADS_LOGIN_CUSTOMER_ID=
 
 Task 08 е имплементиран за секциите, които вече връщат данни, но не може да бъде приет напълно спрямо `verify/task-08-verify.md`, докато не бъдат проверени следните точки:
 
-1. Последователността `GSC -> Google Ads -> Meta Ads -> GA4` не може да се потвърди с всички секции, докато Google Ads няма реална data интеграция от Task 07. Секция без данни правилно не трябва да попада в клиентския отчет.
+1. Последователността `GSC -> Google Ads -> Meta Ads -> GA4` е покрита на code level, но трябва да се види ръчно с реално активни секции.
 
 2. Необходима е ръчна визуална проверка на preview-то и сваления PDF за:
 
@@ -131,32 +140,52 @@ Task 08 е имплементиран за секциите, които вече
 
 4. Да се провери поведение при дълги коментари, включително дали page break-овете не разделят неподходящо заглавия, графики или таблици.
 
+## Report History: Future Storage Layer
+
+Историята на отчети вече се записва като metadata-only MVP. Ако трябва повторно сваляне от историята, трябва да се добави storage слой:
+
+1. Локално file storage за dev или object storage за production.
+
+2. Запис на реален `fileUrl`/`filePath` в `GeneratedReport`.
+
+3. Защитен download endpoint, който проверява ownership преди да върне файл.
+
+4. Решение за retention/почистване на стари PDF файлове.
+
 ## Build И Tooling Блокери
 
-1. `npm run build` пада заради Next 15 route signature:
+1. `npm run build` вече минава успешно.
 
-   `prd/src/app/api/oauth/[provider]/test/route.ts` използва синхронен `params`, докато динамичните route handlers в тази версия очакват `Promise<{ provider: string }>`.
+   Проверено след ревизията. Старият Next 15 route signature blocker вече не е активен.
 
-2. `npm run lint` пада преди проверка на кода:
+2. `npm run lint` вече минава успешно.
 
-   ESLint/Next конфигурацията подава вече невалидни опции (`useEslintrc`, `extensions` и др.). Необходимо е уеднаквяване на ESLint конфигурацията и използваната команда/версия.
+   Остават само warning-и за два `<img>` елемента в `ProjectClient.tsx`; това не блокира build/lint, но може да се подобри с `next/image`.
 
 3. Преминали проверки към момента:
 
 ```powershell
+npm run build
+npm run lint
 npx tsc --noEmit
 npx prisma validate
 ```
 
 ## По-широки рискове за Task 07-16
 
-1. OAuth токените се пазят в SQLite като plain text, без encryption-at-rest.
+1. OAuth токените вече минават през encryption helper.
 
-2. OAuth `state` се изгражда като base64 кодиран user id, без подпис или server-side nonce/валидация.
+   `encryptSecret/decryptSecret` използват AES-256-GCM с `TOKEN_ENCRYPTION_KEY`, `NEXTAUTH_SECRET` или `AUTH_SECRET`. Legacy plain tokens се мигрират към encrypted формат при употреба.
 
-3. Meta access token се изпраща в query string към Graph API; по-добре е да се подава чрез authorization header, когато API поведението го позволява.
+2. OAuth `state` вече е подписан и има срок на валидност.
 
-4. Нужен е общ модел/слой за report configuration и metrics преди реалната имплементация на preview, PDF и data fetching.
+   `createOAuthState/parseOAuthState` използват HMAC signature и 15-минутен expiry.
+
+3. Meta report data заявките вече подават токена през `Authorization: Bearer ...`.
+
+   OAuth token exchange flow-ът към Meta все още използва query params, което е нормално за този endpoint, но live OAuth flow трябва да се провери ръчно.
+
+4. Остава нужда от по-ясен слой за report history/storage, ако PDF файловете трябва да се пазят след сваляне.
 
 ## Текущо работно състояние
 

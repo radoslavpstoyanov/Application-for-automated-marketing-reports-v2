@@ -18,22 +18,16 @@ export default async function ProjectPage({ params }: PageProps) {
   const userId = (session.user as any).id;
   const { id } = await params;
 
-  // Find project and update its 'updatedAt' field to move it to the top of the dashboard
-  try {
-    await prisma.project.updateMany({
-      where: { id, userId },
-      data: { updatedAt: new Date() }
-    });
-  } catch (err) {
-    console.error("Failed to update project timestamp:", err);
-  }
-
   // Fetch the actual project data with relations
   const project = await prisma.project.findFirst({
     where: { id, userId },
     include: {
       projectSources: true,
       projectNotes: true,
+      reports: {
+        orderBy: { generatedAt: "desc" },
+        take: 10,
+      },
     }
   });
 
@@ -87,12 +81,20 @@ export default async function ProjectPage({ params }: PageProps) {
     connectionStatus: c.connectionStatus,
   }));
 
+  const serializedReports = project.reports.map(report => ({
+    id: report.id,
+    fileName: report.fileName,
+    fileUrl: report.fileUrl,
+    generatedAt: report.generatedAt.toISOString(),
+  }));
+
   return (
     <ProjectClient
       project={serializedProject}
       sources={serializedSources}
       notes={serializedNotes}
       oauthConnections={serializedConnections}
+      reports={serializedReports}
     />
   );
 }

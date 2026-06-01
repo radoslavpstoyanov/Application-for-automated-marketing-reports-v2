@@ -130,7 +130,7 @@ export function createReportSourceHandler(prisma: PrismaClient, sourceType: Sour
       }
 
       reportLogger.warn("Internal report source request failed", { sourceType });
-      return NextResponse.json({ error: sourceFeedback(sourceType, error.message) }, { status: sourceType === "google_ads" ? 501 : 400 });
+      return NextResponse.json({ error: sourceFeedback(sourceType, error.message) }, { status: 400 });
     }
   };
 }

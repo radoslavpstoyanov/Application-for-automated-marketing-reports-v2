@@ -19,6 +19,7 @@ export async function GET() {
     scope: [
       "https://www.googleapis.com/auth/analytics.readonly",
       "https://www.googleapis.com/auth/webmasters.readonly",
+      "https://www.googleapis.com/auth/adwords",
     ].join(" "),
     access_type: "offline",
     prompt: "consent", // Force consent screen to always get a refresh_token

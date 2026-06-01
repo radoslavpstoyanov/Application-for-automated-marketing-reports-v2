@@ -128,11 +128,11 @@ function LoginForm() {
               }}
             />
           </div>
-          
+
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "-0.5rem" }}>
-            <input 
-              type="checkbox" 
-              id="rememberMe" 
+            <input
+              type="checkbox"
+              id="rememberMe"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
               style={{ width: "auto", margin: 0, cursor: "pointer" }}

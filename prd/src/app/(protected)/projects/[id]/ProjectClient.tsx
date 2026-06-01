@@ -17,8 +17,6 @@ import {
 } from "@/lib/report/metrics";
 import { REPORT_EXTENSION_SECTIONS, REPORT_SECTION_DEFINITIONS, getReportSection, type PreviewSourceType } from "@/lib/report/sections";
 
-const REPORT_CHART_COLOR = "#75b7e6";
-
 interface ReportTheme {
   name: string;
   className: string;
@@ -69,6 +67,13 @@ interface ProjectNote {
   noteText: string;
 }
 
+interface GeneratedReport {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  generatedAt: string;
+}
+
 interface OAuthConnection {
   id: string;
   provider: string;
@@ -93,6 +98,7 @@ interface Props {
   sources: ProjectSource[];
   notes: ProjectNote[];
   oauthConnections: OAuthConnection[];
+  reports: GeneratedReport[];
 }
 
 interface PreviewData {
@@ -110,6 +116,13 @@ interface PreviewData {
     trend: Array<{ date: string; sessions: number }>;
     channels: Ga4Channel[];
     landingPages: Array<{ page: string; sessions: number; users: number }>;
+  };
+  google_ads?: {
+    conversionName: string;
+    kpis: { spend: number; clicks: number; impressions: number; cpc: number; conversions: number; cpa: number; roas: number };
+    changes?: { spend?: MetricChange; clicks?: MetricChange; impressions?: MetricChange; cpc?: MetricChange; conversions?: MetricChange; cpa?: MetricChange; roas?: MetricChange };
+    trend: Array<{ date: string; spend: number }>;
+    campaigns: Array<{ campaign: string; spend: number; clicks: number; impressions: number; conversions: number; cpa: number; roas: number }>;
   };
   meta_ads?: {
     conversionName: string;
@@ -135,7 +148,7 @@ interface PreviewSnapshot {
 
 type ValidationErrors = Record<string, string>;
 
-export default function ProjectClient({ project, sources: initialSources, notes: initialNotes, oauthConnections }: Props) {
+export default function ProjectClient({ project, sources: initialSources, notes: initialNotes, oauthConnections, reports: initialReports }: Props) {
   const router = useRouter();
   const logoInputRef = useRef<HTMLInputElement>(null);
   const isGoogleConnected = oauthConnections.some(c => c.provider === "google" && c.connectionStatus === "active");
@@ -152,10 +165,9 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   const [reportingEnd, setReportingEnd] = useState(project.reportingPeriodEnd ? project.reportingPeriodEnd.substring(0, 10) : "");
   const [comparisonStart, setComparisonStart] = useState(project.comparisonPeriodStart ? project.comparisonPeriodStart.substring(0, 10) : "");
   const [comparisonEnd, setComparisonEnd] = useState(project.comparisonPeriodEnd ? project.comparisonPeriodEnd.substring(0, 10) : "");
-  const [isComparisonFocused, setIsComparisonFocused] = useState(false);
+  const [isComparisonEnabled, setIsComparisonEnabled] = useState(!!(project.comparisonPeriodStart && project.comparisonPeriodEnd));
 
-  const hasComparison = !!(comparisonStart && comparisonEnd);
-  const isComparisonActive = !!(comparisonStart || comparisonEnd || isComparisonFocused);
+  const hasComparison = isComparisonEnabled && !!(comparisonStart && comparisonEnd);
 
   // Active Sources
   const isSourceActive = (type: string) => activeSources.some(s => s.sourceType === type && s.isEnabled);
@@ -205,11 +217,13 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   const [toastError, setToastError] = useState("");
   const [toastSuccess, setToastSuccess] = useState("");
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+  const [reportHistory, setReportHistory] = useState<GeneratedReport[]>(initialReports);
   const previewCacheRef = useRef<Map<string, PreviewData>>(new Map());
 
-  const [googleAccounts, setGoogleAccounts] = useState<{ ga4: { id: string; name: string }[]; gsc: { url: string }[] }>({
+  const [googleAccounts, setGoogleAccounts] = useState<{ ga4: { id: string; name: string }[]; gsc: { url: string }[]; googleAds: { id: string; name: string }[] }>({
     ga4: [],
     gsc: [],
+    googleAds: [],
   });
   const [metaAccounts, setMetaAccounts] = useState<{ id: string; name: string }[]>([]);
 
@@ -223,10 +237,11 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           return data;
         })
         .then(data => {
-          if (data.ga4Properties || data.gscSites) {
+          if (data.ga4Properties || data.gscSites || data.googleAdsAccounts) {
             setGoogleAccounts({
-              ga4: data.ga4Properties.map((p: any) => ({ id: p.id, name: p.name })),
-              gsc: data.gscSites.map((s: any) => ({ url: s.siteUrl }))
+              ga4: (data.ga4Properties || []).map((p: any) => ({ id: p.id, name: p.name })),
+              gsc: (data.gscSites || []).map((s: any) => ({ url: s.siteUrl })),
+              googleAds: (data.googleAdsAccounts || []).map((a: any) => ({ id: a.id, name: a.name })),
             });
           }
           if (data.warnings?.length) setToastError(data.warnings.join(" "));
@@ -282,6 +297,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         copy[idx].oauthConnectionId = getOAuthConnectionId(type);
         copy[idx].externalAccountId = id;
         copy[idx].externalAccountName = name;
+        copy[idx].primaryConversion = null;
         return copy;
       } else {
         return [...prev, { sourceType: type, oauthConnectionId: getOAuthConnectionId(type), externalAccountId: id, externalAccountName: name, primaryConversion: null, isEnabled: true }];
@@ -313,8 +329,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     clientLogoUrl,
     reportingStart,
     reportingEnd,
-    comparisonStart,
-    comparisonEnd,
+    comparisonStart: isComparisonEnabled ? comparisonStart : "",
+    comparisonEnd: isComparisonEnabled ? comparisonEnd : "",
     sources: activeSources.map((source) => ({ ...source })),
     notes: noteList.map((note) => ({ ...note })),
   });
@@ -334,18 +350,46 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       }))
       .sort((a, b) => a.sourceType.localeCompare(b.sourceType)),
   });
+  const createPreviewSignature = (snapshot: PreviewSnapshot = createPreviewSnapshot()) => JSON.stringify({
+    pdfTitle: snapshot.pdfTitle,
+    selectedTheme: snapshot.selectedTheme,
+    clientLogoUrl: snapshot.clientLogoUrl,
+    reportingStart: snapshot.reportingStart,
+    reportingEnd: snapshot.reportingEnd,
+    comparisonStart: snapshot.comparisonStart,
+    comparisonEnd: snapshot.comparisonEnd,
+    sources: snapshot.sources
+      .map((source) => ({
+        sourceType: source.sourceType,
+        oauthConnectionId: source.oauthConnectionId ?? null,
+        externalAccountId: source.externalAccountId,
+        externalAccountName: source.externalAccountName ?? "",
+        primaryConversion: source.primaryConversion ?? null,
+        isEnabled: source.isEnabled,
+      }))
+      .sort((a, b) => a.sourceType.localeCompare(b.sourceType)),
+    notes: snapshot.notes
+      .map((note) => ({
+        noteType: note.noteType,
+        noteText: note.noteText,
+      }))
+      .sort((a, b) => a.noteType.localeCompare(b.noteType)),
+  });
   const mergePreviewData = (base: PreviewData, addition: PreviewData): PreviewData => ({
     ...(base.gsc ? { gsc: base.gsc } : {}),
     ...(base.ga4 ? { ga4: base.ga4 } : {}),
+    ...(base.google_ads ? { google_ads: base.google_ads } : {}),
     ...(base.meta_ads ? { meta_ads: base.meta_ads } : {}),
     ...(addition.gsc ? { gsc: addition.gsc } : {}),
     ...(addition.ga4 ? { ga4: addition.ga4 } : {}),
+    ...(addition.google_ads ? { google_ads: addition.google_ads } : {}),
     ...(addition.meta_ads ? { meta_ads: addition.meta_ads } : {}),
     errors: { ...base.errors, ...addition.errors },
   });
   const createPreviewAddition = (sourceType: string, data: unknown): PreviewData => {
     if (sourceType === "gsc") return { gsc: data as PreviewData["gsc"], errors: {} };
     if (sourceType === "ga4") return { ga4: data as PreviewData["ga4"], errors: {} };
+    if (sourceType === "google_ads") return { google_ads: data as PreviewData["google_ads"], errors: {} };
     if (sourceType === "meta_ads") return { meta_ads: data as PreviewData["meta_ads"], errors: {} };
     return { errors: {} };
   };
@@ -363,8 +407,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           clientLogoUrl,
           reportingPeriodStart: reportingStart || null,
           reportingPeriodEnd: reportingEnd || null,
-          comparisonPeriodStart: comparisonStart || null,
-          comparisonPeriodEnd: comparisonEnd || null,
+          comparisonPeriodStart: isComparisonEnabled ? (comparisonStart || null) : null,
+          comparisonPeriodEnd: isComparisonEnabled ? (comparisonEnd || null) : null,
           sources: activeSources,
           notes: noteList,
         }),
@@ -395,11 +439,11 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     if (reportingStart && reportingEnd && reportingStart > reportingEnd) {
       errors.reportingEnd = "Крайната дата трябва да бъде след началната дата.";
     }
-    if (!!comparisonStart !== !!comparisonEnd) {
+    if (isComparisonEnabled && !!comparisonStart !== !!comparisonEnd) {
       if (!comparisonStart) errors.comparisonStart = "Попълнете началната дата за сравнението.";
       if (!comparisonEnd) errors.comparisonEnd = "Попълнете крайната дата за сравнението.";
     }
-    if (comparisonStart && comparisonEnd && comparisonStart > comparisonEnd) {
+    if (isComparisonEnabled && comparisonStart && comparisonEnd && comparisonStart > comparisonEnd) {
       errors.comparisonEnd = "Крайната сравнителна дата трябва да бъде след началната.";
     }
 
@@ -420,11 +464,12 @@ export default function ProjectClient({ project, sources: initialSources, notes:
 
     const snapshot = createPreviewSnapshot();
     const dataSignature = createDataSignature(snapshot);
+    const previewSnapshotSignature = createPreviewSignature(snapshot);
     const cachedData = previewCacheRef.current.get(dataSignature);
     const sourcesToFetch = snapshot.sources.filter((source) => source.isEnabled);
 
     setPreviewSnapshot(snapshot);
-    setPreviewSignature(dataSignature);
+    setPreviewSignature(previewSnapshotSignature);
     setShowPreview(true);
     setToastError("");
 
@@ -508,7 +553,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
 
   const handleDownloadPDF = async () => {
     const reportElement = document.getElementById("printable-report");
-    const currentSignature = createDataSignature();
+    const currentSignature = createPreviewSignature();
     if (!reportElement || !previewSnapshot || previewSignature !== currentSignature) {
       setToastError("Генерирайте нов преглед преди сваляне на отчета.");
       return;
@@ -600,7 +645,26 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         .replace(/\s+/g, " ")
         .trim();
 
-      pdf.save(`${fileName}.pdf`);
+      const savedFileName = `${fileName}.pdf`;
+      pdf.save(savedFileName);
+
+      try {
+        const historyRes = await fetch(`/api/projects/${project.id}/reports`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName: savedFileName }),
+        });
+        const historyData = await historyRes.json().catch(() => ({}));
+        if (!historyRes.ok) {
+          throw new Error(historyData.error || "Историята на отчета не беше записана.");
+        }
+        if (historyData.report) {
+          setReportHistory((current) => [historyData.report as GeneratedReport, ...current].slice(0, 10));
+        }
+        setToastSuccess("Отчетът е свален и записан в историята.");
+      } catch {
+        setToastError("Отчетът е свален, но историята не беше записана.");
+      }
     } catch {
       reportLogger.warn("PDF export failed");
       setToastError("Неуспешно генериране на PDF файла.");
@@ -609,12 +673,12 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     }
   };
 
-  const currentPreviewSignature = createDataSignature();
+  const currentPreviewSignature = createPreviewSignature();
   const isPreviewCurrent = showPreview && !!previewSnapshot && previewSignature === currentPreviewSignature;
   const reportSnapshot = previewSnapshot ?? createPreviewSnapshot();
   const reportTheme = getReportTheme(reportSnapshot.selectedTheme);
   const reportThemeAccentColor = reportTheme.primary;
-  const reportChartColor = REPORT_CHART_COLOR;
+  const reportChartColor = reportTheme.primary;
   const gscSection = getReportSection("gsc");
   const ga4Section = getReportSection("ga4");
   const googleAdsSection = getReportSection("google_ads");
@@ -637,16 +701,21 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     previewData.ga4.landingPages.length > 0 ||
     Object.values(previewData.ga4.kpis).some((value) => value !== 0)
   );
+  const googleAdsHasData = !!previewData.google_ads && (
+    previewData.google_ads.trend.length > 0 ||
+    previewData.google_ads.campaigns.length > 0 ||
+    Object.values(previewData.google_ads.kpis).some((value) => value !== 0)
+  );
   const metaHasData = !!previewData.meta_ads && (
     previewData.meta_ads.trend.length > 0 ||
     previewData.meta_ads.campaigns.length > 0 ||
     Object.values(previewData.meta_ads.kpis).some((value) => value !== 0)
   );
   const reportSectionIsVisible = (sourceType: PreviewSourceType) => {
-    if (sourceType === "gsc") return !!(sectionLoading.gsc || previewData.gsc || previewData.errors.gsc);
-    if (sourceType === "ga4") return !!(sectionLoading.ga4 || previewData.ga4 || previewData.errors.ga4);
-    if (sourceType === "meta_ads") return !!(sectionLoading.meta_ads || previewData.meta_ads || previewData.errors.meta_ads);
-    return !!(sectionLoading.google_ads || previewData.errors.google_ads);
+    if (sourceType === "gsc") return !!(sectionLoading.gsc || previewData.errors.gsc || gscHasData);
+    if (sourceType === "ga4") return !!(sectionLoading.ga4 || previewData.errors.ga4 || ga4HasData);
+    if (sourceType === "meta_ads") return !!(sectionLoading.meta_ads || previewData.errors.meta_ads || metaHasData);
+    return !!(sectionLoading.google_ads || previewData.errors.google_ads || googleAdsHasData);
   };
   const scrollToPreviewSection = (sectionId: string) => {
     document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -696,13 +765,22 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           background: #ffffff;
           box-sizing: border-box;
           box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+          break-inside: avoid;
           margin: 0 auto 1.5rem;
           max-width: 794px;
           overflow: hidden;
+          page-break-inside: avoid;
           padding: 3.35rem 3rem 4.25rem;
           position: relative;
           scroll-margin-top: 5.5rem;
           width: 100%;
+        }
+        .preview-pages .pdf-avoid-break,
+        .preview-pages h2,
+        .preview-pages h3,
+        .preview-pages svg {
+          break-inside: avoid;
+          page-break-inside: avoid;
         }
         .preview-pages.report-theme-lead {
           --report-primary: #43b370;
@@ -999,6 +1077,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     min="2000-01-01"
                     value={reportingStart}
                     onChange={(e) => { setReportingStart(e.target.value); clearValidationErrors("reportingStart", "reportingEnd"); }}
+                    onKeyDown={(e) => e.preventDefault()}
+                    onPaste={(e) => e.preventDefault()}
                     onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
                     style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("reportingStart")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
                   />
@@ -1013,6 +1093,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     min="2000-01-01"
                     value={reportingEnd}
                     onChange={(e) => { setReportingEnd(e.target.value); clearValidationErrors("reportingStart", "reportingEnd"); }}
+                    onKeyDown={(e) => e.preventDefault()}
+                    onPaste={(e) => e.preventDefault()}
                     onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
                     style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("reportingEnd")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
                   />
@@ -1023,13 +1105,22 @@ export default function ProjectClient({ project, sources: initialSources, notes:
               <div 
                 style={{ 
                   marginTop: "0.5rem",
-                  opacity: isComparisonActive ? 1 : 0.5, 
+                  opacity: isComparisonEnabled ? 1 : 0.55,
                   transition: "opacity 0.3s ease",
                 }}
               >
-                <div style={{ display: "block", fontSize: "0.95rem", marginBottom: "0.75rem", fontWeight: "600", color: "var(--foreground)" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.95rem", marginBottom: "0.75rem", fontWeight: "600", color: "var(--foreground)", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={isComparisonEnabled}
+                    onChange={(e) => {
+                      setIsComparisonEnabled(e.target.checked);
+                      clearValidationErrors("comparisonStart", "comparisonEnd");
+                    }}
+                    style={{ width: "18px", height: "18px", accentColor: "var(--primary)" }}
+                  />
                   Сравнение с предходен период
-                </div>
+                </label>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
                   <div>
                     <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.5rem", fontWeight: "600" }}>
@@ -1040,10 +1131,11 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       min="2000-01-01"
                       value={comparisonStart}
                       onChange={(e) => { setComparisonStart(e.target.value); clearValidationErrors("comparisonStart", "comparisonEnd"); }}
-                      onFocus={() => setIsComparisonFocused(true)}
-                      onBlur={() => setIsComparisonFocused(false)}
+                      disabled={!isComparisonEnabled}
+                      onKeyDown={(e) => e.preventDefault()}
+                      onPaste={(e) => e.preventDefault()}
                       onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("comparisonStart")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
+                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("comparisonStart")}`, background: "var(--background)", color: "var(--foreground)", cursor: isComparisonEnabled ? "pointer" : "not-allowed" }}
                     />
                     <InlineError field="comparisonStart" />
                   </div>
@@ -1056,10 +1148,11 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       min="2000-01-01"
                       value={comparisonEnd}
                       onChange={(e) => { setComparisonEnd(e.target.value); clearValidationErrors("comparisonStart", "comparisonEnd"); }}
-                      onFocus={() => setIsComparisonFocused(true)}
-                      onBlur={() => setIsComparisonFocused(false)}
+                      disabled={!isComparisonEnabled}
+                      onKeyDown={(e) => e.preventDefault()}
+                      onPaste={(e) => e.preventDefault()}
                       onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("comparisonEnd")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
+                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("comparisonEnd")}`, background: "var(--background)", color: "var(--foreground)", cursor: isComparisonEnabled ? "pointer" : "not-allowed" }}
                     />
                     <InlineError field="comparisonEnd" />
                   </div>
@@ -1141,19 +1234,17 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.4rem", color: "var(--muted-foreground)" }}>
                         Основна конверсия
                       </label>
-                      <input
-                        list="ga4-conversion-options"
+                      <select
                         value={getPrimaryConversion("ga4")}
                         onChange={(e) => handlePrimaryConversionChange("ga4", e.target.value)}
-                        placeholder="напр. generate_lead"
                         style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("ga4.conversion")}`, background: "var(--background)", color: "var(--foreground)" }}
-                      />
+                      >
+                        <option value="">-- Изберете конверсия --</option>
+                        <option value="generate_lead">generate_lead</option>
+                        <option value="purchase">purchase</option>
+                        <option value="page_view">page_view</option>
+                      </select>
                       <InlineError field="ga4.conversion" />
-                      <datalist id="ga4-conversion-options">
-                        <option value="generate_lead" />
-                        <option value="purchase" />
-                        <option value="page_view" />
-                      </datalist>
                     </div>
                   </div>
                 )}
@@ -1174,24 +1265,44 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.4rem", color: "var(--muted-foreground)" }}>
                         Customer ID
                       </label>
-                      <input
-                        value={getSourceField("google_ads", "externalAccountId")}
-                        onChange={(e) => handleSourceSelectChange("google_ads", e.target.value, e.target.value)}
-                        placeholder="123-456-7890"
-                        style={{ padding: "0.6rem", border: `1px solid ${validationBorder("google_ads.account")}` }}
-                      />
+                      {googleAccounts.googleAds.length > 0 ? (
+                        <select
+                          value={getSourceField("google_ads", "externalAccountId")}
+                          onChange={(e) => {
+                            const opt = googleAccounts.googleAds.find(o => o.id === e.target.value);
+                            handleSourceSelectChange("google_ads", e.target.value, opt?.name || e.target.value);
+                          }}
+                          style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("google_ads.account")}`, background: "var(--background)", color: "var(--foreground)" }}
+                        >
+                          <option value="">-- Изберете Google Ads --</option>
+                          {googleAccounts.googleAds.map(o => (
+                            <option key={o.id} value={o.id}>{o.name} ({o.id})</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={getSourceField("google_ads", "externalAccountId")}
+                          onChange={(e) => handleSourceSelectChange("google_ads", e.target.value, e.target.value)}
+                          placeholder="123-456-7890"
+                          style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("google_ads.account")}`, background: "var(--background)", color: "var(--foreground)" }}
+                        />
+                      )}
                       <InlineError field="google_ads.account" />
                     </div>
                     <div>
                       <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.4rem", color: "var(--muted-foreground)" }}>
                         Основна конверсия
                       </label>
-                      <input
+                      <select
                         value={getPrimaryConversion("google_ads")}
                         onChange={(e) => handlePrimaryConversionChange("google_ads", e.target.value)}
-                        placeholder="Lead form submit"
-                        style={{ padding: "0.6rem", border: `1px solid ${validationBorder("google_ads.conversion")}` }}
-                      />
+                        style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("google_ads.conversion")}`, background: "var(--background)", color: "var(--foreground)" }}
+                      >
+                        <option value="">-- Изберете конверсия --</option>
+                        <option value="generate_lead">generate_lead</option>
+                        <option value="purchase">purchase</option>
+                        <option value="page_view">page_view</option>
+                      </select>
                       <InlineError field="google_ads.conversion" />
                     </div>
                   </div>
@@ -1233,19 +1344,17 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "0.4rem", color: "var(--muted-foreground)" }}>
                         Основна конверсия
                       </label>
-                      <input
-                        list="meta-conversion-options"
+                      <select
                         value={getPrimaryConversion("meta_ads")}
                         onChange={(e) => handlePrimaryConversionChange("meta_ads", e.target.value)}
-                        placeholder="напр. lead"
                         style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("meta_ads.conversion")}`, background: "var(--background)", color: "var(--foreground)" }}
-                      />
+                      >
+                        <option value="">-- Изберете конверсия --</option>
+                        <option value="lead">lead</option>
+                        <option value="purchase">purchase</option>
+                        <option value="link_click">link_click</option>
+                      </select>
                       <InlineError field="meta_ads.conversion" />
-                      <datalist id="meta-conversion-options">
-                        <option value="lead" />
-                        <option value="purchase" />
-                        <option value="link_click" />
-                      </datalist>
                     </div>
                   </div>
                 )}
@@ -1356,6 +1465,39 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                 />
               </div>
             </div>
+          </div>
+
+          <div className="glass" style={{ padding: "2rem", borderRadius: "1rem", height: "fit-content" }}>
+            <h3 style={{ fontSize: "1.25rem", marginBottom: "0.75rem", fontWeight: "700" }}>История на отчети</h3>
+            <p style={{ fontSize: "0.85rem", color: "var(--muted-foreground)", marginBottom: "1.25rem", lineHeight: "1.5" }}>
+              Записва се metadata за свалените отчети. PDF файлът засега се пази само локално при сваляне.
+            </p>
+
+            {reportHistory.length === 0 ? (
+              <p style={{ margin: 0, color: "var(--muted-foreground)", fontSize: "0.9rem" }}>Все още няма свалени отчети за този проект.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {reportHistory.map((report) => (
+                  <div key={report.id} style={{ border: "1px solid var(--border)", borderRadius: "0.6rem", padding: "0.85rem", background: "rgba(255,255,255,0.55)" }}>
+                    <div style={{ fontSize: "0.9rem", fontWeight: "700", marginBottom: "0.25rem", wordBreak: "break-word" }}>
+                      {report.fileName}
+                    </div>
+                    <div style={{ fontSize: "0.78rem", color: "var(--muted-foreground)" }}>
+                      {new Date(report.generatedAt).toLocaleString("bg-BG")}
+                    </div>
+                    {report.fileUrl ? (
+                      <a href={report.fileUrl} className="secondary" style={{ display: "inline-block", marginTop: "0.65rem", padding: "0.45rem 0.7rem", fontSize: "0.78rem", textDecoration: "none" }}>
+                        Свали отново
+                      </a>
+                    ) : (
+                      <div style={{ marginTop: "0.55rem", fontSize: "0.75rem", color: "var(--muted-foreground)" }}>
+                        Файлът е свален локално, без server storage.
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1489,7 +1631,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
             <div style={{ marginTop: "3rem", display: "flex", flexDirection: "column", gap: "3.5rem" }}>
               
               {/* Google Search Console */}
-              {reportIsSourceActive("gsc") && (sectionLoading.gsc || previewData.gsc || previewData.errors.gsc) && (
+              {reportIsSourceActive("gsc") && (sectionLoading.gsc || previewData.errors.gsc || gscHasData) && (
                 <ReportSection section={gscSection} accountLabel={reportGetSourceField("gsc", "externalAccountId")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
                   
@@ -1549,7 +1691,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
               )}
 
               {/* Google Analytics 4 */}
-              {reportIsSourceActive("ga4") && (sectionLoading.ga4 || previewData.ga4 || previewData.errors.ga4) && (
+              {reportIsSourceActive("ga4") && (sectionLoading.ga4 || previewData.errors.ga4 || ga4HasData) && (
                 <ReportSection section={ga4Section} accountLabel={reportGetSourceField("ga4", "externalAccountName") || reportGetSourceField("ga4", "externalAccountId")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
                   
@@ -1620,19 +1762,66 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                 </ReportSection>
               )}
 
-              {reportIsSourceActive("google_ads") && (sectionLoading.google_ads || previewData.errors.google_ads) && (
+              {reportIsSourceActive("google_ads") && (sectionLoading.google_ads || previewData.errors.google_ads || googleAdsHasData) && (
                 <ReportSection section={googleAdsSection} accountLabel={reportGetSourceField("google_ads", "externalAccountId")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
                   {sectionLoading.google_ads ? (
                     <SectionLoadingNotice label={googleAdsSection.loadingLabel} accentColor={reportChartColor} />
+                  ) : previewData.errors.google_ads ? (
+                    <SectionErrorNotice message={previewData.errors.google_ads} />
+                  ) : previewData.google_ads && !googleAdsHasData ? (
+                    <EmptyDataNotice />
+                  ) : previewData.google_ads ? (
+                    <>
+                      <KpiGrid
+                        items={[
+                          { label: "Бюджет", value: formatCurrency(previewData.google_ads.kpis.spend), delta: previewData.google_ads.changes?.spend },
+                          { label: "Кликове", value: formatNumber(previewData.google_ads.kpis.clicks), delta: previewData.google_ads.changes?.clicks },
+                          { label: "Импресии", value: formatNumber(previewData.google_ads.kpis.impressions), delta: previewData.google_ads.changes?.impressions },
+                          { label: "CPC", value: formatCurrency(previewData.google_ads.kpis.cpc), delta: previewData.google_ads.changes?.cpc, invert: true },
+                          { label: `Конверсии (${previewData.google_ads.conversionName})`, value: formatNumber(previewData.google_ads.kpis.conversions), delta: previewData.google_ads.changes?.conversions },
+                          { label: "CPA", value: formatCurrency(previewData.google_ads.kpis.cpa), delta: previewData.google_ads.changes?.cpa, invert: true },
+                          { label: "ROAS", value: formatRatio(previewData.google_ads.kpis.roas), delta: previewData.google_ads.changes?.roas },
+                        ]}
+                      />
+
+                      <div style={{ marginBottom: "1.5rem" }}>
+                        <ReportPanel title="Динамика на бюджета за периода">
+                          <MetricTrendChart
+                            accentColor={reportChartColor}
+                            points={previewData.google_ads.trend.map((point) => ({ date: point.date, value: point.spend }))}
+                          />
+                        </ReportPanel>
+                      </div>
+
+                      <div style={{ marginBottom: "1.5rem" }}>
+                        <ReportPanel title="Кампании">
+                          <ReportTable
+                            rows={previewData.google_ads.campaigns}
+                            getRowKey={(row) => row.campaign}
+                            columns={[
+                              { header: "Кампания", render: (row) => row.campaign },
+                              { header: "Бюджет", align: "right", render: (row) => <strong>{formatCurrency(row.spend)}</strong> },
+                              { header: "Кликове", align: "right", render: (row) => formatNumber(row.clicks) },
+                              { header: "Импр.", align: "right", render: (row) => formatNumber(row.impressions) },
+                              { header: "Конв.", align: "right", render: (row) => formatNumber(row.conversions) },
+                              { header: "CPA", align: "right", render: (row) => formatCurrency(row.cpa) },
+                              { header: "ROAS", align: "right", render: (row) => formatRatio(row.roas) },
+                            ]}
+                          />
+                        </ReportPanel>
+                      </div>
+
+                      <SectionSummary noteType="google_ads" />
+                    </>
                   ) : (
-                    <SectionErrorNotice message={previewData.errors.google_ads ?? "Данните не могат да бъдат заредени."} />
+                    null
                   )}
                 </ReportSection>
               )}
 
               {/* Meta Ads */}
-              {reportIsSourceActive("meta_ads") && (sectionLoading.meta_ads || previewData.meta_ads || previewData.errors.meta_ads) && (
+              {reportIsSourceActive("meta_ads") && (sectionLoading.meta_ads || previewData.errors.meta_ads || metaHasData) && (
                 <ReportSection section={metaAdsSection} accountLabel={reportGetSourceField("meta_ads", "externalAccountName")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
 
