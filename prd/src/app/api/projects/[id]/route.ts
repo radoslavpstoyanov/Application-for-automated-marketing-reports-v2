@@ -29,6 +29,24 @@ interface ProjectPatchProps {
   params: Promise<{ id: string }>;
 }
 
+function getTodayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function validateOptionalDateRange(start: unknown, end: unknown, label: string) {
+  const startDate = typeof start === "string" ? start : "";
+  const endDate = typeof end === "string" ? end : "";
+  const today = getTodayIsoDate();
+
+  if ((startDate && startDate > today) || (endDate && endDate > today)) {
+    return `${label} не може да бъде в бъдеще.`;
+  }
+  if (startDate && endDate && startDate > endDate) {
+    return `Невалиден ${label.toLowerCase()}.`;
+  }
+  return null;
+}
+
 export async function PATCH(req: Request, { params }: ProjectPatchProps) {
   const session = await getServerSession(authOptions);
 
@@ -63,6 +81,15 @@ export async function PATCH(req: Request, { params }: ProjectPatchProps) {
       sources,
       notes,
     } = body;
+
+    const reportingPeriodError = validateOptionalDateRange(reportingPeriodStart, reportingPeriodEnd, "Периодът на отчитане");
+    if (reportingPeriodError) {
+      return NextResponse.json({ error: reportingPeriodError }, { status: 400 });
+    }
+    const comparisonPeriodError = validateOptionalDateRange(comparisonPeriodStart, comparisonPeriodEnd, "Сравнителният период");
+    if (comparisonPeriodError) {
+      return NextResponse.json({ error: comparisonPeriodError }, { status: 400 });
+    }
 
     const sourceInputs = Array.isArray(sources)
       ? (sources as SourceInput[]).map((src) => ({

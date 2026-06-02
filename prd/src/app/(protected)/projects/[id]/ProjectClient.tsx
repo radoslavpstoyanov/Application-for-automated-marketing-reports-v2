@@ -148,6 +148,12 @@ interface PreviewSnapshot {
 
 type ValidationErrors = Record<string, string>;
 
+function getTodayDateInputValue() {
+  const now = new Date();
+  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 10);
+}
+
 export default function ProjectClient({ project, sources: initialSources, notes: initialNotes, oauthConnections, reports: initialReports }: Props) {
   const router = useRouter();
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +174,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   const [isComparisonEnabled, setIsComparisonEnabled] = useState(!!(project.comparisonPeriodStart && project.comparisonPeriodEnd));
 
   const hasComparison = isComparisonEnabled && !!(comparisonStart && comparisonEnd);
+  const todayDateValue = getTodayDateInputValue();
 
   // Active Sources
   const isSourceActive = (type: string) => activeSources.some(s => s.sourceType === type && s.isEnabled);
@@ -394,7 +401,47 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     return { errors: {} };
   };
 
+  const validateDateInputs = (requireReportingPeriod = false) => {
+    const errors: ValidationErrors = {};
+
+    if (requireReportingPeriod && (!reportingStart || !reportingEnd)) {
+      if (!reportingStart) errors.reportingStart = "Моля, изберете начална дата.";
+      if (!reportingEnd) errors.reportingEnd = "Моля, изберете крайна дата.";
+    }
+    if (reportingStart && reportingStart > todayDateValue) {
+      errors.reportingStart = "Началната дата не може да бъде в бъдеще.";
+    }
+    if (reportingEnd && reportingEnd > todayDateValue) {
+      errors.reportingEnd = "Крайната дата не може да бъде в бъдеще.";
+    }
+    if (reportingStart && reportingEnd && reportingStart > reportingEnd) {
+      errors.reportingEnd = "Крайната дата трябва да бъде след началната дата.";
+    }
+    if (isComparisonEnabled && !!comparisonStart !== !!comparisonEnd) {
+      if (!comparisonStart) errors.comparisonStart = "Попълнете началната дата за сравнението.";
+      if (!comparisonEnd) errors.comparisonEnd = "Попълнете крайната дата за сравнението.";
+    }
+    if (isComparisonEnabled && comparisonStart && comparisonStart > todayDateValue) {
+      errors.comparisonStart = "Началната сравнителна дата не може да бъде в бъдеще.";
+    }
+    if (isComparisonEnabled && comparisonEnd && comparisonEnd > todayDateValue) {
+      errors.comparisonEnd = "Крайната сравнителна дата не може да бъде в бъдеще.";
+    }
+    if (isComparisonEnabled && comparisonStart && comparisonEnd && comparisonStart > comparisonEnd) {
+      errors.comparisonEnd = "Крайната сравнителна дата трябва да бъде след началната.";
+    }
+
+    return errors;
+  };
+
   const handleSave = async () => {
+    const errors = validateDateInputs(false);
+    setValidationErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setToastError("Коригирайте периода преди запис.");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const res = await fetch(`/api/projects/${project.id}`, {
@@ -413,12 +460,13 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           notes: noteList,
         }),
       });
+      const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
         setToastSuccess("Проектът беше записан успешно!");
         router.refresh();
       } else {
-        throw new Error("Неуспешен запис на проекта");
+        throw new Error(data.error || "Неуспешен запис на проекта");
       }
     } catch (err: any) {
       setToastError(err.message || "Грешка при запис.");
@@ -428,23 +476,9 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   };
 
   const handleGeneratePreview = async () => {
-    const errors: ValidationErrors = {};
+    const errors: ValidationErrors = validateDateInputs(true);
     if (!selectedTheme) {
       errors.theme = "Моля, изберете бранд тема.";
-    }
-    if (!reportingStart || !reportingEnd) {
-      if (!reportingStart) errors.reportingStart = "Моля, изберете начална дата.";
-      if (!reportingEnd) errors.reportingEnd = "Моля, изберете крайна дата.";
-    }
-    if (reportingStart && reportingEnd && reportingStart > reportingEnd) {
-      errors.reportingEnd = "Крайната дата трябва да бъде след началната дата.";
-    }
-    if (isComparisonEnabled && !!comparisonStart !== !!comparisonEnd) {
-      if (!comparisonStart) errors.comparisonStart = "Попълнете началната дата за сравнението.";
-      if (!comparisonEnd) errors.comparisonEnd = "Попълнете крайната дата за сравнението.";
-    }
-    if (isComparisonEnabled && comparisonStart && comparisonEnd && comparisonStart > comparisonEnd) {
-      errors.comparisonEnd = "Крайната сравнителна дата трябва да бъде след началната.";
     }
 
     const enabledSources = activeSources.filter((source) => source.isEnabled);
@@ -1103,6 +1137,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                   <input
                     type="date"
                     min="2000-01-01"
+                    max={todayDateValue}
                     value={reportingStart}
                     onChange={(e) => { setReportingStart(e.target.value); clearValidationErrors("reportingStart", "reportingEnd"); }}
                     onKeyDown={(e) => e.preventDefault()}
@@ -1119,6 +1154,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                   <input
                     type="date"
                     min="2000-01-01"
+                    max={todayDateValue}
                     value={reportingEnd}
                     onChange={(e) => { setReportingEnd(e.target.value); clearValidationErrors("reportingStart", "reportingEnd"); }}
                     onKeyDown={(e) => e.preventDefault()}
@@ -1157,6 +1193,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     <input
                       type="date"
                       min="2000-01-01"
+                      max={todayDateValue}
                       value={comparisonStart}
                       onChange={(e) => { setComparisonStart(e.target.value); clearValidationErrors("comparisonStart", "comparisonEnd"); }}
                       disabled={!isComparisonEnabled}
@@ -1174,6 +1211,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     <input
                       type="date"
                       min="2000-01-01"
+                      max={todayDateValue}
                       value={comparisonEnd}
                       onChange={(e) => { setComparisonEnd(e.target.value); clearValidationErrors("comparisonStart", "comparisonEnd"); }}
                       disabled={!isComparisonEnabled}

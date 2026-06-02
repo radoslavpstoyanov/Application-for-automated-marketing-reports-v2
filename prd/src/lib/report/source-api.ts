@@ -29,9 +29,17 @@ export interface SourceApiBody {
   comparisonEnd?: string | null;
 }
 
+function getTodayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function parsePeriods(body: SourceApiBody) {
   if (!body.reportingStart || !body.reportingEnd) {
     throw new ApiError("Липсва период на отчитане.", 400);
+  }
+  const today = getTodayIsoDate();
+  if (body.reportingStart > today || body.reportingEnd > today) {
+    throw new ApiError("Периодът на отчитане не може да бъде в бъдеще.", 400);
   }
   if (body.reportingStart > body.reportingEnd) {
     throw new ApiError("Невалиден период на отчитане.", 400);
@@ -41,6 +49,9 @@ export function parsePeriods(body: SourceApiBody) {
   }
   if (body.comparisonStart && body.comparisonEnd && body.comparisonStart > body.comparisonEnd) {
     throw new ApiError("Невалиден сравнителен период.", 400);
+  }
+  if ((body.comparisonStart && body.comparisonStart > today) || (body.comparisonEnd && body.comparisonEnd > today)) {
+    throw new ApiError("Сравнителният период не може да бъде в бъдеще.", 400);
   }
 
   return {
