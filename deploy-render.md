@@ -24,7 +24,7 @@
 
 ## 2. Подготви production база
 
-Текущо локално проектът използва SQLite. За Render production трябва PostgreSQL.
+Проектът вече е подготвен за PostgreSQL. За Render production трябва Render PostgreSQL база.
 
 В Render:
 
@@ -39,24 +39,15 @@ marketing-reports-db
 
 5. След създаване копирай `External Database URL` или `Internal Database URL`.
 
-External Database URL - postgresql://marketing_reports_db_user:KrQrMh14RiOGr5Nux9Sl5RJwFrTGvza8@dpg-d8fftf58nd3s73fp957g-a.oregon-postgres.render.com/marketing_reports_db
+Не записвай реалния database URL в GitHub или документацията. Това е production secret и трябва да стои само в Render Environment Variables или локално в `.env`.
 
 За Render web service обикновено използвай `Internal Database URL`, ако web service-ът е в същия Render account/region.
 
 Тази стойност ще бъде `DATABASE_URL`.
 
-## 3. Prisma промяна за PostgreSQL
+## 3. Prisma статус
 
-Преди production deploy трябва Prisma datasource в `prd/prisma/schema.prisma` да се смени от:
-
-```prisma
-datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
-}
-```
-
-към:
+Prisma datasource в `prd/prisma/schema.prisma` вече е:
 
 ```prisma
 datasource db {
@@ -65,16 +56,23 @@ datasource db {
 }
 ```
 
-След това трябва да се създаде production migration за PostgreSQL.
+Migration-ите вече са PostgreSQL baseline migration:
+
+```text
+prd/prisma/migrations/20260602190000_postgresql_baseline/migration.sql
+```
 
 Локална проверка:
 
 ```powershell
 cd C:\Users\rstoy\Application-for-automated-marketing-reports-v2\prd
+$env:DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE?schema=public"
 npx prisma generate
 npx prisma validate
 npm run build
 ```
+
+Ако искаш да стартираш проекта локално след тази промяна, локалният `.env` също трябва да сочи към PostgreSQL URL. Старото `file:./dev.db` вече е само за стария SQLite вариант.
 
 ## 4. Създай Render Web Service
 
@@ -87,13 +85,13 @@ npm run build
 
 ```text
 Root Directory: prd
-Environment: Node
+Language: Node
 ```
 
 Build command:
 
 ```bash
-npm install && npx prisma generate && npx prisma migrate deploy && npm run build
+npm install --legacy-peer-deps && npx prisma generate && npx prisma migrate deploy && npm run build
 ```
 
 Start command:
@@ -195,7 +193,7 @@ business_management
 Очаква се да минат:
 
 ```bash
-npm install
+npm install --legacy-peer-deps
 npx prisma generate
 npx prisma migrate deploy
 npm run build
