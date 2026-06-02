@@ -740,10 +740,10 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     Object.values(previewData.meta_ads.kpis).some((value) => value !== 0)
   );
   const reportSectionIsVisible = (sourceType: PreviewSourceType) => {
-    if (sourceType === "gsc") return !!(sectionLoading.gsc || previewData.errors.gsc || gscHasData);
-    if (sourceType === "ga4") return !!(sectionLoading.ga4 || previewData.errors.ga4 || ga4HasData);
-    if (sourceType === "meta_ads") return !!(sectionLoading.meta_ads || previewData.errors.meta_ads || metaHasData);
-    return !!(sectionLoading.google_ads || previewData.errors.google_ads || googleAdsHasData);
+    if (sourceType === "gsc") return !!(sectionLoading.gsc || previewData.errors.gsc || previewData.gsc || gscHasData);
+    if (sourceType === "ga4") return !!(sectionLoading.ga4 || previewData.errors.ga4 || previewData.ga4 || ga4HasData);
+    if (sourceType === "meta_ads") return !!(sectionLoading.meta_ads || previewData.errors.meta_ads || previewData.meta_ads || metaHasData);
+    return !!(sectionLoading.google_ads || previewData.errors.google_ads || previewData.google_ads || googleAdsHasData);
   };
   const scrollToPreviewSection = (sectionId: string) => {
     document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1673,7 +1673,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
             <div style={{ marginTop: "3rem", display: "flex", flexDirection: "column", gap: "3.5rem" }}>
               
               {/* Google Search Console */}
-              {reportIsSourceActive("gsc") && (sectionLoading.gsc || previewData.errors.gsc || gscHasData) && (
+              {reportIsSourceActive("gsc") && (sectionLoading.gsc || previewData.errors.gsc || previewData.gsc || gscHasData) && (
                 <ReportSection section={gscSection} accountLabel={reportGetSourceField("gsc", "externalAccountId")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
                   
@@ -1733,7 +1733,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
               )}
 
               {/* Google Analytics 4 */}
-              {reportIsSourceActive("ga4") && (sectionLoading.ga4 || previewData.errors.ga4 || ga4HasData) && (
+              {reportIsSourceActive("ga4") && (sectionLoading.ga4 || previewData.errors.ga4 || previewData.ga4 || ga4HasData) && (
                 <ReportSection section={ga4Section} accountLabel={reportGetSourceField("ga4", "externalAccountName") || reportGetSourceField("ga4", "externalAccountId")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
                   
@@ -1804,7 +1804,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                 </ReportSection>
               )}
 
-              {reportIsSourceActive("google_ads") && (sectionLoading.google_ads || previewData.errors.google_ads || googleAdsHasData) && (
+              {reportIsSourceActive("google_ads") && (sectionLoading.google_ads || previewData.errors.google_ads || previewData.google_ads || googleAdsHasData) && (
                 <ReportSection section={googleAdsSection} accountLabel={reportGetSourceField("google_ads", "externalAccountId")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
                   {sectionLoading.google_ads ? (
@@ -1863,7 +1863,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
               )}
 
               {/* Meta Ads */}
-              {reportIsSourceActive("meta_ads") && (sectionLoading.meta_ads || previewData.errors.meta_ads || metaHasData) && (
+              {reportIsSourceActive("meta_ads") && (sectionLoading.meta_ads || previewData.errors.meta_ads || previewData.meta_ads || metaHasData) && (
                 <ReportSection section={metaAdsSection} accountLabel={reportGetSourceField("meta_ads", "externalAccountName")} accentColor={reportThemeAccentColor}>
                   <SectionPeriod />
 

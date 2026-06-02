@@ -73,6 +73,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       if (sourceType === "gsc") result.gsc = data;
       if (sourceType === "ga4") result.ga4 = data;
+      if (sourceType === "google_ads") result.google_ads = data;
       if (sourceType === "meta_ads") result.meta_ads = data;
       reportLogger.debug("Report source processed", { sourceType });
     } catch (error: any) {
