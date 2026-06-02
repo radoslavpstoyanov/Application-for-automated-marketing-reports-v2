@@ -84,7 +84,7 @@ export default async function ProjectPage({ params }: PageProps) {
   const serializedReports = project.reports.map(report => ({
     id: report.id,
     fileName: report.fileName,
-    fileUrl: report.fileUrl,
+    fileUrl: report.fileUrl ? `/api/projects/${project.id}/reports/${report.id}/download` : "",
     generatedAt: report.generatedAt.toISOString(),
   }));
 

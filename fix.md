@@ -77,9 +77,9 @@ npm run dev
 
    Preview/PDF рендерира source секция само когато тя зарежда, има API/config грешка за диагностика или има реални данни. Enabled source без върнати данни вече не добавя празна клиентска секция с `Няма налични данни...`.
 
-10. Report history е имплементиран като metadata-only MVP.
+10. Report history е имплементиран с database-backed PDF storage.
 
-   При успешно client-side PDF download се създава `GeneratedReport` запис с име на файла, потребител и дата. Project page зарежда последните отчети и показва панел `История на отчети`. Самият PDF файл засега не се съхранява на сървър, затова няма повторно сваляне без бъдещ storage слой.
+   При успешно client-side PDF download се създава `GeneratedReport` запис с име на файла, потребител, дата и PDF data URL. Project page зарежда последните отчети и показва панел `История на отчети`. Повторното сваляне минава през защитен endpoint, който проверява ownership.
 
 ### Критични
 
@@ -140,15 +140,15 @@ Task 08 е имплементиран за секциите, които вече
 
 4. Да се провери поведение при дълги коментари, включително дали page break-овете не разделят неподходящо заглавия, графики или таблици.
 
-## Report History: Future Storage Layer
+## Report History: Future Storage Improvements
 
-Историята на отчети вече се записва като metadata-only MVP. Ако трябва повторно сваляне от историята, трябва да се добави storage слой:
+Историята на отчети вече пази PDF файловете в базата като MVP storage слой. За по-големи production файлове може да се добави object storage:
 
-1. Локално file storage за dev или object storage за production.
+1. Object storage за production.
 
-2. Запис на реален `fileUrl`/`filePath` в `GeneratedReport`.
+2. Запис на реален external `fileUrl`/`filePath` в `GeneratedReport`.
 
-3. Защитен download endpoint, който проверява ownership преди да върне файл.
+3. Streaming download от storage вместо връщане на PDF от database text field.
 
 4. Решение за retention/почистване на стари PDF файлове.
 
@@ -185,7 +185,7 @@ npx prisma validate
 
    OAuth token exchange flow-ът към Meta все още използва query params, което е нормално за този endpoint, но live OAuth flow трябва да се провери ръчно.
 
-4. Остава нужда от по-ясен слой за report history/storage, ако PDF файловете трябва да се пазят след сваляне.
+4. За големи production обеми ще е нужен object storage вместо database-backed PDF storage.
 
 ## Текущо работно състояние
 

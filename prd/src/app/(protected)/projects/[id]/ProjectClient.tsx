@@ -646,13 +646,14 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         .trim();
 
       const savedFileName = `${fileName}.pdf`;
+      const fileData = pdf.output("datauristring");
       pdf.save(savedFileName);
 
       try {
         const historyRes = await fetch(`/api/projects/${project.id}/reports`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileName: savedFileName }),
+          body: JSON.stringify({ fileName: savedFileName, fileData }),
         });
         const historyData = await historyRes.json().catch(() => ({}));
         if (!historyRes.ok) {
@@ -670,6 +671,33 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       setToastError("Неуспешно генериране на PDF файла.");
     } finally {
       setIsPdfDownloading(false);
+    }
+  };
+
+  const handleDownloadStoredReport = async (report: GeneratedReport) => {
+    if (!report.fileUrl) {
+      setToastError("PDF файлът не е наличен за повторно сваляне.");
+      return;
+    }
+
+    try {
+      const response = await fetch(report.fileUrl);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Отчетът не може да бъде свален.");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = report.fileName || "report.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setToastError(err.message || "Отчетът не може да бъде свален.");
     }
   };
 
@@ -1009,7 +1037,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     onChange={(e) => { setSelectedTheme(e.target.value); clearValidationErrors("theme"); }}
                     style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("theme")}`, background: "var(--background)", color: "var(--foreground)" }}
                   >
-                    <option value="">-- Изберете тема --</option>
+                    <option value="">Изберете тема</option>
                     <option value="Lead Group">Lead Group (Зелена палитра)</option>
                     <option value="Vectory Design">Vectory (Синя палитра)</option>
                   </select>
@@ -1189,7 +1217,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       }}
                       style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("gsc.account")}`, background: "var(--background)", color: "var(--foreground)" }}
                     >
-                      <option value="">-- Изберете сайт --</option>
+                      <option value="">Изберете сайт</option>
                       {googleAccounts.gsc.map(o => (
                         <option key={o.url} value={o.url}>{o.url}</option>
                       ))}
@@ -1222,7 +1250,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         }}
                         style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("ga4.account")}`, background: "var(--background)", color: "var(--foreground)" }}
                       >
-                        <option value="">-- Изберете GA4 --</option>
+                        <option value="">Изберете GA4</option>
                         {googleAccounts.ga4.map(o => (
                           <option key={o.id} value={o.id}>{o.name}</option>
                         ))}
@@ -1239,7 +1267,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         onChange={(e) => handlePrimaryConversionChange("ga4", e.target.value)}
                         style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("ga4.conversion")}`, background: "var(--background)", color: "var(--foreground)" }}
                       >
-                        <option value="">-- Изберете конверсия --</option>
+                        <option value="">Изберете конверсия</option>
                         <option value="generate_lead">generate_lead</option>
                         <option value="purchase">purchase</option>
                         <option value="page_view">page_view</option>
@@ -1274,7 +1302,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                           }}
                           style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("google_ads.account")}`, background: "var(--background)", color: "var(--foreground)" }}
                         >
-                          <option value="">-- Изберете Google Ads --</option>
+                          <option value="">Изберете Google Ads</option>
                           {googleAccounts.googleAds.map(o => (
                             <option key={o.id} value={o.id}>{o.name} ({o.id})</option>
                           ))}
@@ -1298,7 +1326,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         onChange={(e) => handlePrimaryConversionChange("google_ads", e.target.value)}
                         style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("google_ads.conversion")}`, background: "var(--background)", color: "var(--foreground)" }}
                       >
-                        <option value="">-- Изберете конверсия --</option>
+                        <option value="">Изберете конверсия</option>
                         <option value="generate_lead">generate_lead</option>
                         <option value="purchase">purchase</option>
                         <option value="page_view">page_view</option>
@@ -1332,7 +1360,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         }}
                         style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("meta_ads.account")}`, background: "var(--background)", color: "var(--foreground)" }}
                       >
-                        <option value="">-- Изберете акаунт --</option>
+                        <option value="">Изберете акаунт</option>
                         {metaAccounts.map(o => (
                           <option key={o.id} value={o.id}>{o.name}</option>
                         ))}
@@ -1349,7 +1377,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                         onChange={(e) => handlePrimaryConversionChange("meta_ads", e.target.value)}
                         style={{ width: "100%", padding: "0.6rem", borderRadius: "0.35rem", border: `1px solid ${validationBorder("meta_ads.conversion")}`, background: "var(--background)", color: "var(--foreground)" }}
                       >
-                        <option value="">-- Изберете конверсия --</option>
+                        <option value="">Изберете конверсия</option>
                         <option value="lead">lead</option>
                         <option value="purchase">purchase</option>
                         <option value="link_click">link_click</option>
@@ -1470,7 +1498,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           <div className="glass" style={{ padding: "2rem", borderRadius: "1rem", height: "fit-content" }}>
             <h3 style={{ fontSize: "1.25rem", marginBottom: "0.75rem", fontWeight: "700" }}>История на отчети</h3>
             <p style={{ fontSize: "0.85rem", color: "var(--muted-foreground)", marginBottom: "1.25rem", lineHeight: "1.5" }}>
-              Записва се metadata за свалените отчети. PDF файлът засега се пази само локално при сваляне.
+              PDF файловете се пазят в базата и могат да се свалят повторно от историята.
             </p>
 
             {reportHistory.length === 0 ? (
@@ -1486,12 +1514,26 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                       {new Date(report.generatedAt).toLocaleString("bg-BG")}
                     </div>
                     {report.fileUrl ? (
-                      <a href={report.fileUrl} className="secondary" style={{ display: "inline-block", marginTop: "0.65rem", padding: "0.45rem 0.7rem", fontSize: "0.78rem", textDecoration: "none" }}>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadStoredReport(report)}
+                        style={{
+                          background: "var(--primary)",
+                          borderRadius: "var(--radius)",
+                          border: "none",
+                          color: "var(--primary-foreground)",
+                          display: "inline-block",
+                          fontSize: "0.78rem",
+                          fontWeight: 700,
+                          marginTop: "0.65rem",
+                          padding: "0.45rem 0.7rem",
+                        }}
+                      >
                         Свали отново
-                      </a>
+                      </button>
                     ) : (
                       <div style={{ marginTop: "0.55rem", fontSize: "0.75rem", color: "var(--muted-foreground)" }}>
-                        Файлът е свален локално, без server storage.
+                        PDF файлът не е наличен за повторно сваляне.
                       </div>
                     )}
                   </div>
