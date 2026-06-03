@@ -154,6 +154,131 @@ function getTodayDateInputValue() {
   return localDate.toISOString().slice(0, 10);
 }
 
+function formatDateForDisplay(value: string) {
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return "";
+  return `${day}.${month}.${year}`;
+}
+
+function parseDateInputValue(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function toDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function getInclusiveDateSpanDays(start: string, end: string) {
+  const startDate = parseDateInputValue(start);
+  const endDate = parseDateInputValue(end);
+  if (!startDate || !endDate) return null;
+
+  const diffDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000);
+  return diffDays >= 0 ? diffDays + 1 : null;
+}
+
+function getMatchingComparisonEnd(reportingStart: string, reportingEnd: string, comparisonStart: string, maxDate: string) {
+  const spanDays = getInclusiveDateSpanDays(reportingStart, reportingEnd);
+  const comparisonStartDate = parseDateInputValue(comparisonStart);
+  if (!spanDays || !comparisonStartDate) return "";
+
+  comparisonStartDate.setUTCDate(comparisonStartDate.getUTCDate() + spanDays - 1);
+  const comparisonEnd = toDateInputValue(comparisonStartDate);
+  return comparisonEnd > maxDate ? maxDate : comparisonEnd;
+}
+
+function DatePickerField({
+  value,
+  onChange,
+  borderColor,
+  min,
+  max,
+  disabled = false,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  borderColor: string;
+  min: string;
+  max: string;
+  disabled?: boolean;
+  ariaLabel: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const openPicker = () => {
+    if (disabled) return;
+
+    const input = inputRef.current;
+    if (!input) return;
+
+    input.focus();
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+      } else {
+        input.click();
+      }
+    } catch {
+      input.click();
+    }
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        disabled={disabled}
+        onClick={openPicker}
+        style={{
+          alignItems: "center",
+          background: "var(--background)",
+          border: `1px solid ${borderColor}`,
+          borderRadius: "0.5rem",
+          color: value ? "var(--foreground)" : "var(--muted-foreground)",
+          cursor: disabled ? "not-allowed" : "pointer",
+          display: "flex",
+          fontFamily: "inherit",
+          justifyContent: "space-between",
+          minHeight: "45px",
+          opacity: disabled ? 0.7 : 1,
+          padding: "0.75rem",
+          textAlign: "left",
+          width: "100%",
+        }}
+      >
+        <span>{value ? formatDateForDisplay(value) : "дд.мм.гггг"}</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <path d="M16 2v4M8 2v4M3 10h18" />
+        </svg>
+      </button>
+      <input
+        ref={inputRef}
+        type="date"
+        lang="bg-BG"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{
+          cursor: disabled ? "not-allowed" : "pointer",
+          height: "100%",
+          inset: 0,
+          opacity: 0,
+          position: "absolute",
+          width: "100%",
+        }}
+      />
+    </div>
+  );
+}
+
 function resizeImageFileToDataUrl(file: File, maxWidth = 700, maxHeight = 360, quality = 0.86) {
   return new Promise<string>((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
@@ -297,6 +422,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [reportHistory, setReportHistory] = useState<GeneratedReport[]>(initialReports);
   const previewCacheRef = useRef<Map<string, PreviewData>>(new Map());
+  const comparisonEndWasAutoSetRef = useRef(false);
 
   const [googleAccounts, setGoogleAccounts] = useState<{ ga4: { id: string; name: string }[]; gsc: { url: string }[]; googleAds: { id: string; name: string }[] }>({
     ga4: [],
@@ -349,6 +475,47 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       keys.forEach((key) => delete next[key]);
       return next;
     });
+  };
+
+  const syncAutoComparisonEnd = (nextReportingStart = reportingStart, nextReportingEnd = reportingEnd, nextComparisonStart = comparisonStart) => {
+    if (!comparisonEndWasAutoSetRef.current || !nextComparisonStart) return;
+
+    const nextComparisonEnd = getMatchingComparisonEnd(nextReportingStart, nextReportingEnd, nextComparisonStart, todayDateValue);
+    if (nextComparisonEnd) {
+      setComparisonEnd(nextComparisonEnd);
+    }
+  };
+
+  const handleReportingStartChange = (value: string) => {
+    setReportingStart(value);
+    clearValidationErrors("reportingStart", "reportingEnd");
+    syncAutoComparisonEnd(value, reportingEnd, comparisonStart);
+  };
+
+  const handleReportingEndChange = (value: string) => {
+    setReportingEnd(value);
+    clearValidationErrors("reportingStart", "reportingEnd");
+    syncAutoComparisonEnd(reportingStart, value, comparisonStart);
+  };
+
+  const handleComparisonStartChange = (value: string) => {
+    setComparisonStart(value);
+    clearValidationErrors("comparisonStart", "comparisonEnd");
+
+    const nextComparisonEnd = getMatchingComparisonEnd(reportingStart, reportingEnd, value, todayDateValue);
+    if (nextComparisonEnd) {
+      comparisonEndWasAutoSetRef.current = true;
+      setComparisonEnd(nextComparisonEnd);
+    } else if (!value) {
+      comparisonEndWasAutoSetRef.current = true;
+      setComparisonEnd("");
+    }
+  };
+
+  const handleComparisonEndChange = (value: string) => {
+    comparisonEndWasAutoSetRef.current = false;
+    setComparisonEnd(value);
+    clearValidationErrors("comparisonStart", "comparisonEnd");
   };
 
   const handleSourceCheckboxChange = (type: string, isChecked: boolean) => {
@@ -1218,16 +1385,13 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                   <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.5rem", fontWeight: "600" }}>
                     Начална дата
                   </label>
-                  <input
-                    type="date"
+                  <DatePickerField
+                    ariaLabel="Начална дата"
                     min="2000-01-01"
                     max={todayDateValue}
                     value={reportingStart}
-                    onChange={(e) => { setReportingStart(e.target.value); clearValidationErrors("reportingStart", "reportingEnd"); }}
-                    onKeyDown={(e) => e.preventDefault()}
-                    onPaste={(e) => e.preventDefault()}
-                    onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                    style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("reportingStart")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
+                    onChange={handleReportingStartChange}
+                    borderColor={validationBorder("reportingStart")}
                   />
                   <InlineError field="reportingStart" />
                 </div>
@@ -1235,16 +1399,13 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                   <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.5rem", fontWeight: "600" }}>
                     Крайна дата
                   </label>
-                  <input
-                    type="date"
+                  <DatePickerField
+                    ariaLabel="Крайна дата"
                     min="2000-01-01"
                     max={todayDateValue}
                     value={reportingEnd}
-                    onChange={(e) => { setReportingEnd(e.target.value); clearValidationErrors("reportingStart", "reportingEnd"); }}
-                    onKeyDown={(e) => e.preventDefault()}
-                    onPaste={(e) => e.preventDefault()}
-                    onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                    style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("reportingEnd")}`, background: "var(--background)", color: "var(--foreground)", cursor: "pointer" }}
+                    onChange={handleReportingEndChange}
+                    borderColor={validationBorder("reportingEnd")}
                   />
                   <InlineError field="reportingEnd" />
                 </div>
@@ -1262,8 +1423,16 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     type="checkbox"
                     checked={isComparisonEnabled}
                     onChange={(e) => {
-                      setIsComparisonEnabled(e.target.checked);
+                      const checked = e.target.checked;
+                      setIsComparisonEnabled(checked);
                       clearValidationErrors("comparisonStart", "comparisonEnd");
+                      if (checked && comparisonStart && !comparisonEnd) {
+                        const nextComparisonEnd = getMatchingComparisonEnd(reportingStart, reportingEnd, comparisonStart, todayDateValue);
+                        if (nextComparisonEnd) {
+                          comparisonEndWasAutoSetRef.current = true;
+                          setComparisonEnd(nextComparisonEnd);
+                        }
+                      }
                     }}
                     style={{ width: "18px", height: "18px", accentColor: "var(--primary)" }}
                   />
@@ -1274,17 +1443,14 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.5rem", fontWeight: "600" }}>
                       Начало сравнителен
                     </label>
-                    <input
-                      type="date"
+                    <DatePickerField
+                      ariaLabel="Начало сравнителен период"
                       min="2000-01-01"
                       max={todayDateValue}
                       value={comparisonStart}
-                      onChange={(e) => { setComparisonStart(e.target.value); clearValidationErrors("comparisonStart", "comparisonEnd"); }}
+                      onChange={handleComparisonStartChange}
                       disabled={!isComparisonEnabled}
-                      onKeyDown={(e) => e.preventDefault()}
-                      onPaste={(e) => e.preventDefault()}
-                      onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("comparisonStart")}`, background: "var(--background)", color: "var(--foreground)", cursor: isComparisonEnabled ? "pointer" : "not-allowed" }}
+                      borderColor={validationBorder("comparisonStart")}
                     />
                     <InlineError field="comparisonStart" />
                   </div>
@@ -1292,17 +1458,14 @@ export default function ProjectClient({ project, sources: initialSources, notes:
                     <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.5rem", fontWeight: "600" }}>
                       Край сравнителен
                     </label>
-                    <input
-                      type="date"
+                    <DatePickerField
+                      ariaLabel="Край сравнителен период"
                       min="2000-01-01"
                       max={todayDateValue}
                       value={comparisonEnd}
-                      onChange={(e) => { setComparisonEnd(e.target.value); clearValidationErrors("comparisonStart", "comparisonEnd"); }}
+                      onChange={handleComparisonEndChange}
                       disabled={!isComparisonEnabled}
-                      onKeyDown={(e) => e.preventDefault()}
-                      onPaste={(e) => e.preventDefault()}
-                      onClick={(e) => { try { e.currentTarget.showPicker(); } catch (err) {} }}
-                      style={{ width: "100%", padding: "0.75rem", borderRadius: "0.5rem", border: `1px solid ${validationBorder("comparisonEnd")}`, background: "var(--background)", color: "var(--foreground)", cursor: isComparisonEnabled ? "pointer" : "not-allowed" }}
+                      borderColor={validationBorder("comparisonEnd")}
                     />
                     <InlineError field="comparisonEnd" />
                   </div>
