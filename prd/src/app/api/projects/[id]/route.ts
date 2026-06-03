@@ -30,7 +30,15 @@ interface ProjectPatchProps {
 }
 
 function getTodayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Europe/Sofia",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const partByType = new Map(parts.map((part) => [part.type, part.value]));
+
+  return `${partByType.get("year")}-${partByType.get("month")}-${partByType.get("day")}`;
 }
 
 function validateOptionalDateRange(start: unknown, end: unknown, label: string) {
@@ -92,10 +100,17 @@ export async function PATCH(req: Request, { params }: ProjectPatchProps) {
     }
 
     const sourceInputs = Array.isArray(sources)
-      ? (sources as SourceInput[]).map((src) => ({
-          ...src,
-          oauthConnectionId: src.oauthConnectionId === "sandbox" ? null : (src.oauthConnectionId || null),
-        }))
+      ? (sources as SourceInput[])
+          .map((src) => ({
+            ...src,
+            sourceType: typeof src.sourceType === "string" ? src.sourceType : "",
+            oauthConnectionId: src.oauthConnectionId === "sandbox" ? null : (src.oauthConnectionId || null),
+            externalAccountId: typeof src.externalAccountId === "string" ? src.externalAccountId.trim() : "",
+            externalAccountName: typeof src.externalAccountName === "string" ? src.externalAccountName.trim() : "",
+            primaryConversion: typeof src.primaryConversion === "string" ? src.primaryConversion.trim() || null : null,
+            isEnabled: !!src.isEnabled,
+          }))
+          .filter((src) => src.isEnabled || !!src.externalAccountId || !!src.externalAccountName || !!src.primaryConversion)
       : null;
     const invalidSource = sourceInputs?.find((src) => !SOURCE_PROVIDERS[src.sourceType]);
     if (invalidSource) {
@@ -125,6 +140,16 @@ export async function PATCH(req: Request, { params }: ProjectPatchProps) {
       if (providerMismatch) {
         return NextResponse.json({ error: "Избраната интеграция не отговаря на източника на данни." }, { status: 400 });
       }
+    }
+    const incompleteEnabledSource = sourceInputs?.find((src) => src.isEnabled && !src.externalAccountId);
+    if (incompleteEnabledSource) {
+      return NextResponse.json({ error: "Активиран източник на данни няма избран акаунт." }, { status: 400 });
+    }
+    const missingConversionSource = sourceInputs?.find((src) => (
+      src.isEnabled && ["ga4", "google_ads", "meta_ads"].includes(src.sourceType) && !src.primaryConversion
+    ));
+    if (missingConversionSource) {
+      return NextResponse.json({ error: "Активиран рекламен/аналитичен източник няма избрана основна конверсия." }, { status: 400 });
     }
 
     // Use a transaction to update project configuration and its children atomically

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 
 const prisma = new PrismaClient();
+const MAX_REPORT_FILE_DATA_LENGTH = 25_000_000;
 
 interface ReportsRouteProps {
   params: Promise<{ id: string }>;
@@ -75,6 +76,12 @@ export async function POST(req: Request, { params }: ReportsRouteProps) {
 
   if (fileData && !fileData.startsWith("data:application/pdf")) {
     return NextResponse.json({ error: "Невалиден PDF формат." }, { status: 400 });
+  }
+  if (fileData.length > MAX_REPORT_FILE_DATA_LENGTH) {
+    return NextResponse.json(
+      { error: "PDF файлът е твърде голям за запис в историята. Намалете логото или броя секции и опитайте отново." },
+      { status: 413 }
+    );
   }
 
   const project = await prisma.project.findFirst({

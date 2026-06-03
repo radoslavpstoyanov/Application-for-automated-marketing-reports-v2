@@ -154,6 +154,77 @@ function getTodayDateInputValue() {
   return localDate.toISOString().slice(0, 10);
 }
 
+function resizeImageFileToDataUrl(file: File, maxWidth = 700, maxHeight = 360, quality = 0.86) {
+  return new Promise<string>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      try {
+        const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+        const width = Math.max(1, Math.round(image.width * scale));
+        const height = Math.max(1, Math.round(image.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const context = canvas.getContext("2d");
+        if (!context) {
+          throw new Error("Неуспешна подготовка на логото.");
+        }
+
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, width, height);
+        context.drawImage(image, 0, 0, width, height);
+        URL.revokeObjectURL(objectUrl);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl);
+        reject(error);
+      }
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Логото не може да бъде заредено."));
+    };
+
+    image.src = objectUrl;
+  });
+}
+
+function resizeImageDataUrl(dataUrl: string, maxWidth = 700, maxHeight = 360, quality = 0.86) {
+  return new Promise<string>((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => {
+      try {
+        const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+        const width = Math.max(1, Math.round(image.width * scale));
+        const height = Math.max(1, Math.round(image.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const context = canvas.getContext("2d");
+        if (!context) {
+          throw new Error("Неуспешна подготовка на логото.");
+        }
+
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, width, height);
+        context.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    image.onerror = () => reject(new Error("Логото не може да бъде заредено."));
+    image.src = dataUrl;
+  });
+}
+
 export default function ProjectClient({ project, sources: initialSources, notes: initialNotes, oauthConnections, reports: initialReports }: Props) {
   const router = useRouter();
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -319,14 +390,15 @@ export default function ProjectClient({ project, sources: initialSources, notes:
     ));
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setClientLogoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      const resizedLogo = await resizeImageFileToDataUrl(file);
+      setClientLogoUrl(resizedLogo);
+    } catch (error: any) {
+      setToastError(error.message || "Логото не може да бъде обработено.");
     }
   };
 
@@ -441,9 +513,21 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       setToastError("Коригирайте периода преди запис.");
       return;
     }
+    const sourcesToSave = activeSources.filter((source) => (
+      source.isEnabled ||
+      !!source.externalAccountId ||
+      !!source.externalAccountName ||
+      !!source.primaryConversion
+    ));
 
     setIsSaving(true);
     try {
+      let clientLogoUrlToSave = clientLogoUrl;
+      if (clientLogoUrlToSave?.startsWith("data:image/") && clientLogoUrlToSave.length > 500_000) {
+        clientLogoUrlToSave = await resizeImageDataUrl(clientLogoUrlToSave);
+        setClientLogoUrl(clientLogoUrlToSave);
+      }
+
       const res = await fetch(`/api/projects/${project.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -451,12 +535,12 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           projectName,
           selectedTheme,
           pdfTitle,
-          clientLogoUrl,
+          clientLogoUrl: clientLogoUrlToSave,
           reportingPeriodStart: reportingStart || null,
           reportingPeriodEnd: reportingEnd || null,
           comparisonPeriodStart: isComparisonEnabled ? (comparisonStart || null) : null,
           comparisonPeriodEnd: isComparisonEnabled ? (comparisonEnd || null) : null,
-          sources: activeSources,
+          sources: sourcesToSave,
           notes: noteList,
         }),
       });
@@ -628,7 +712,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
       for (const block of blocks) {
         const canvas = await html2canvas(block, {
           backgroundColor: "#ffffff",
-          scale: 2,
+          scale: 1.35,
           useCORS: true,
           logging: false,
         });
@@ -653,7 +737,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           context.drawImage(canvas, 0, sourceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
 
           const renderedHeightMm = sliceHeight / pixelsPerMm;
-          pdf.addImage(pageCanvas.toDataURL("image/png"), "PNG", 10, contentTopMm, contentWidthMm, renderedHeightMm);
+          pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.82), "JPEG", 10, contentTopMm, contentWidthMm, renderedHeightMm, undefined, "FAST");
           sourceY += sliceHeight;
         }
       }
@@ -697,8 +781,8 @@ export default function ProjectClient({ project, sources: initialSources, notes:
           setReportHistory((current) => [historyData.report as GeneratedReport, ...current].slice(0, 10));
         }
         setToastSuccess("Отчетът е свален и записан в историята.");
-      } catch {
-        setToastError("Отчетът е свален, но историята не беше записана.");
+      } catch (error: any) {
+        setToastError(`Отчетът е свален, но историята не беше записана: ${error.message || "неизвестна грешка"}`);
       }
     } catch {
       reportLogger.warn("PDF export failed");
