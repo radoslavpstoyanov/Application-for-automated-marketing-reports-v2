@@ -24,12 +24,43 @@ function cleanEnvValue(value: string | undefined) {
   return value?.trim();
 }
 
+function uniqueMessages(messages: string[]) {
+  return Array.from(new Set(messages.map((message) => message.trim()).filter(Boolean)));
+}
+
 function googleAdsErrorMessage(data: any) {
-  const message = data?.error?.message;
-  if (typeof message === "string" && message.trim()) {
-    return message.trim();
+  const messages: string[] = [];
+  const error = data?.error;
+
+  if (typeof error?.message === "string" && error.message.trim()) {
+    messages.push(error.message);
   }
-  return "";
+
+  for (const detail of error?.details ?? []) {
+    for (const adsError of detail?.errors ?? []) {
+      if (typeof adsError?.message === "string" && adsError.message.trim()) {
+        messages.push(adsError.message);
+      }
+
+      const errorCode = adsError?.errorCode;
+      if (errorCode && typeof errorCode === "object") {
+        const code = Object.entries(errorCode)
+          .map(([group, value]) => `${group}: ${value}`)
+          .join(", ");
+        if (code) messages.push(code);
+      }
+    }
+
+    if (typeof detail?.requestId === "string" && detail.requestId.trim()) {
+      messages.push(`Google request ID: ${detail.requestId}`);
+    }
+  }
+
+  if (typeof error?.status === "string" && error.status.trim()) {
+    messages.push(`Status: ${error.status}`);
+  }
+
+  return uniqueMessages(messages).join(" ");
 }
 
 async function fetchGoogleAdsCustomerClients(
