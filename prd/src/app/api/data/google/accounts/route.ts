@@ -20,6 +20,60 @@ function normalizeCustomerId(value: string) {
   return value.replace(/\D/g, "");
 }
 
+function cleanEnvValue(value: string | undefined) {
+  return value?.trim();
+}
+
+function googleAdsErrorMessage(data: any) {
+  const message = data?.error?.message;
+  if (typeof message === "string" && message.trim()) {
+    return message.trim();
+  }
+  return "";
+}
+
+async function fetchGoogleAdsCustomerClients(
+  apiVersion: string,
+  accessToken: string,
+  developerToken: string,
+  managerCustomerId: string
+) {
+  const response = await fetch(`https://googleads.googleapis.com/${apiVersion}/customers/${managerCustomerId}/googleAds:searchStream`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "developer-token": developerToken,
+      "login-customer-id": managerCustomerId,
+    },
+    body: JSON.stringify({
+      query: `
+        SELECT
+          customer_client.client_customer,
+          customer_client.descriptive_name,
+          customer_client.manager,
+          customer_client.status
+        FROM customer_client
+        WHERE customer_client.status = 'ENABLED'
+      `,
+    }),
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(googleAdsErrorMessage(data) || "Неуспешно зареждане на Google Ads клиентските акаунти.");
+  }
+
+  const chunks = Array.isArray(data) ? data : [data];
+  return chunks.flatMap((chunk) => chunk.results ?? []) as Array<{
+    customerClient?: {
+      clientCustomer?: string;
+      descriptiveName?: string;
+      manager?: boolean;
+    };
+  }>;
+}
+
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -73,31 +127,65 @@ export async function GET() {
       warnings.push("Не можахме да заредим Search Console сайтовете. Проверете дали Search Console API е активиран и дали акаунтът има достъп.");
     }
 
-    const googleAdsDeveloperToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+    const googleAdsDeveloperToken = cleanEnvValue(process.env.GOOGLE_ADS_DEVELOPER_TOKEN);
     if (googleAdsDeveloperToken) {
-      const googleAdsApiVersion = process.env.GOOGLE_ADS_API_VERSION || "v22";
+      const googleAdsApiVersion = cleanEnvValue(process.env.GOOGLE_ADS_API_VERSION) || "v22";
+      const googleAdsLoginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+        ? normalizeCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID)
+        : "";
       const googleAdsHeaders: Record<string, string> = {
         Authorization: `Bearer ${accessToken}`,
         "developer-token": googleAdsDeveloperToken,
       };
-      if (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) {
-        googleAdsHeaders["login-customer-id"] = normalizeCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID);
+
+      if (googleAdsLoginCustomerId) {
+        try {
+          const clients = await fetchGoogleAdsCustomerClients(
+            googleAdsApiVersion,
+            accessToken,
+            googleAdsDeveloperToken,
+            googleAdsLoginCustomerId
+          );
+          for (const row of clients) {
+            const client = row.customerClient;
+            const id = String(client?.clientCustomer ?? "").replace("customers/", "");
+            if (id && id !== googleAdsLoginCustomerId && !client?.manager) {
+              googleAdsAccounts.push({ id, name: client?.descriptiveName || `Customer ${id}` });
+            }
+          }
+        } catch (error: any) {
+          reportLogger.warn("Google Ads customer clients fetch failed");
+          warnings.push(`Не можахме да заредим Google Ads клиентските акаунти. ${error.message}`);
+        }
       }
 
-      const adsRes = await fetch(`https://googleads.googleapis.com/${googleAdsApiVersion}/customers:listAccessibleCustomers`, {
-        headers: googleAdsHeaders,
-      });
-      const adsData = await adsRes.json();
-      if (!adsRes.ok) {
-        reportLogger.warn("Google Ads customers fetch failed");
-        warnings.push("Не можахме да заредим Google Ads акаунтите. Проверете Developer Token, adwords OAuth scope и достъпа до Ads акаунта.");
-      } else {
-        for (const resourceName of adsData.resourceNames ?? []) {
-          const id = String(resourceName).replace("customers/", "");
-          if (id) {
-            googleAdsAccounts.push({ id, name: `Customer ${id}` });
+      if (googleAdsAccounts.length === 0) {
+        const adsRes = await fetch(`https://googleads.googleapis.com/${googleAdsApiVersion}/customers:listAccessibleCustomers`, {
+          headers: googleAdsHeaders,
+        });
+        const adsData = await adsRes.json();
+        if (!adsRes.ok) {
+          const details = googleAdsErrorMessage(adsData);
+          reportLogger.warn("Google Ads customers fetch failed");
+          warnings.push(
+            `Не можахме да заредим Google Ads акаунтите. ${
+              details || "Проверете Developer Token, adwords OAuth scope и достъпа до Ads акаунта."
+            }`
+          );
+        } else {
+          for (const resourceName of adsData.resourceNames ?? []) {
+            const id = String(resourceName).replace("customers/", "");
+            if (id) {
+              googleAdsAccounts.push({ id, name: `Customer ${id}` });
+            }
           }
         }
+      }
+
+      if (googleAdsLoginCustomerId && googleAdsAccounts.length === 0) {
+        warnings.push("Google Ads Manager акаунтът е достъпен, но не върна активни клиентски акаунти.");
+      } else {
+        googleAdsAccounts.sort((a, b) => a.name.localeCompare(b.name));
       }
     } else {
       warnings.push("Google Ads акаунтите не са заредени, защото липсва GOOGLE_ADS_DEVELOPER_TOKEN.");

@@ -271,21 +271,25 @@ function normalizeCustomerId(customerId: string) {
   return normalized;
 }
 
+function cleanEnvValue(value: string | undefined) {
+  return value?.trim();
+}
+
 function escapeGaqlString(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 function getGoogleAdsConfig() {
-  const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+  const developerToken = cleanEnvValue(process.env.GOOGLE_ADS_DEVELOPER_TOKEN);
   if (!developerToken) {
     throw new Error("Липсва GOOGLE_ADS_DEVELOPER_TOKEN. Добавете Google Ads Developer Token в .env.local и рестартирайте dev server-а.");
   }
 
   return {
-    apiVersion: process.env.GOOGLE_ADS_API_VERSION || "v22",
+    apiVersion: cleanEnvValue(process.env.GOOGLE_ADS_API_VERSION) || "v22",
     developerToken,
-    loginCustomerId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
-      ? normalizeCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID)
+    loginCustomerId: cleanEnvValue(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID)
+      ? normalizeCustomerId(cleanEnvValue(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID)!)
       : undefined,
   };
 }
