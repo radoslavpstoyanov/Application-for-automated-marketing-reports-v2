@@ -28,7 +28,20 @@ function uniqueMessages(messages: string[]) {
   return Array.from(new Set(messages.map((message) => message.trim()).filter(Boolean)));
 }
 
-function googleAdsErrorMessage(data: any) {
+function textSnippet(text: string) {
+  return text.replace(/\s+/g, " ").trim().slice(0, 800);
+}
+
+async function readResponseBody(response: Response) {
+  const text = await response.text();
+  try {
+    return { data: text ? JSON.parse(text) : null, text };
+  } catch {
+    return { data: null, text };
+  }
+}
+
+function googleAdsErrorMessage(data: any, rawText = "") {
   const messages: string[] = [];
   const error = data?.error;
 
@@ -60,7 +73,17 @@ function googleAdsErrorMessage(data: any) {
     messages.push(`Status: ${error.status}`);
   }
 
+  const rawSnippet = textSnippet(rawText);
+  if (!messages.length && rawSnippet) {
+    messages.push(`Raw response: ${rawSnippet}`);
+  }
+
   return uniqueMessages(messages).join(" ");
+}
+
+function googleAdsHttpError(response: Response, data: any, rawText: string) {
+  const parsed = googleAdsErrorMessage(data, rawText);
+  return `[HTTP ${response.status} ${response.statusText}] ${parsed || "Google Ads API върна грешка без JSON body."}`;
 }
 
 async function fetchGoogleAdsCustomerClients(
@@ -89,10 +112,10 @@ async function fetchGoogleAdsCustomerClients(
       `,
     }),
   });
-  const data = await response.json();
+  const { data, text } = await readResponseBody(response);
 
   if (!response.ok) {
-    throw new Error(googleAdsErrorMessage(data) || "Неуспешно зареждане на Google Ads клиентските акаунти.");
+    throw new Error(googleAdsHttpError(response, data, text));
   }
 
   const chunks = Array.isArray(data) ? data : [data];
@@ -116,6 +139,7 @@ export async function GET() {
     const accessToken = await getProviderAccessToken(prisma, userId, "google");
     const headers = { Authorization: `Bearer ${accessToken}` };
     const warnings: string[] = [];
+    const googleAdsDiagnostics: string[] = [];
     const properties = new Map<string, { id: string; name: string; websiteUrl: null }>();
     const googleAdsAccounts: Array<{ id: string; name: string }> = [];
     let pageToken = "";
@@ -164,6 +188,9 @@ export async function GET() {
       const googleAdsLoginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
         ? normalizeCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID)
         : "";
+      googleAdsDiagnostics.push(`Google Ads API version: ${googleAdsApiVersion}`);
+      googleAdsDiagnostics.push(`Developer token configured: yes`);
+      googleAdsDiagnostics.push(`Login customer ID: ${googleAdsLoginCustomerId || "not configured"}`);
       const googleAdsHeaders: Record<string, string> = {
         Authorization: `Bearer ${accessToken}`,
         "developer-token": googleAdsDeveloperToken,
@@ -184,9 +211,12 @@ export async function GET() {
               googleAdsAccounts.push({ id, name: client?.descriptiveName || `Customer ${id}` });
             }
           }
+          googleAdsDiagnostics.push(`MCC customer_client query succeeded. Client accounts found: ${googleAdsAccounts.length}`);
         } catch (error: any) {
           reportLogger.warn("Google Ads customer clients fetch failed");
-          warnings.push(`Не можахме да заредим Google Ads клиентските акаунти. ${error.message}`);
+          const message = error.message || "Неизвестна грешка.";
+          googleAdsDiagnostics.push(`MCC customer_client query failed: ${message}`);
+          warnings.push(`Не можахме да заредим Google Ads клиентските акаунти. ${message}`);
         }
       }
 
@@ -194,10 +224,11 @@ export async function GET() {
         const adsRes = await fetch(`https://googleads.googleapis.com/${googleAdsApiVersion}/customers:listAccessibleCustomers`, {
           headers: googleAdsHeaders,
         });
-        const adsData = await adsRes.json();
+        const { data: adsData, text: adsText } = await readResponseBody(adsRes);
         if (!adsRes.ok) {
-          const details = googleAdsErrorMessage(adsData);
+          const details = googleAdsHttpError(adsRes, adsData, adsText);
           reportLogger.warn("Google Ads customers fetch failed");
+          googleAdsDiagnostics.push(`listAccessibleCustomers failed: ${details}`);
           warnings.push(
             `Не можахме да заредим Google Ads акаунтите. ${
               details || "Проверете Developer Token, adwords OAuth scope и достъпа до Ads акаунта."
@@ -210,6 +241,7 @@ export async function GET() {
               googleAdsAccounts.push({ id, name: `Customer ${id}` });
             }
           }
+          googleAdsDiagnostics.push(`listAccessibleCustomers succeeded. Accounts found: ${googleAdsAccounts.length}`);
         }
       }
 
@@ -220,6 +252,7 @@ export async function GET() {
       }
     } else {
       warnings.push("Google Ads акаунтите не са заредени, защото липсва GOOGLE_ADS_DEVELOPER_TOKEN.");
+      googleAdsDiagnostics.push("Developer token configured: no");
     }
 
     return NextResponse.json({
@@ -230,6 +263,7 @@ export async function GET() {
       })),
       googleAdsAccounts,
       warnings,
+      googleAdsDiagnostics,
     });
   } catch (error: any) {
     reportLogger.warn("Google accounts fetch failed");
