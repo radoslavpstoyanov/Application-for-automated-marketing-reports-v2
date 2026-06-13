@@ -276,15 +276,25 @@ function escapeGaqlString(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-async function searchGoogleAds(token: string, customerId: string, query: string) {
-  const config = getGoogleAdsConfig();
+function shouldRetryGoogleAdsWithoutLoginCustomer(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /USER_PERMISSION_DENIED|doesn'?t have permission to access customer|caller does not have permission|login-customer-id/i.test(message);
+}
+
+async function runGoogleAdsSearchRequest(
+  token: string,
+  customerId: string,
+  query: string,
+  config: ReturnType<typeof getGoogleAdsConfig>,
+  useLoginCustomerId: boolean
+) {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
     "developer-token": config.developerToken,
   };
 
-  if (config.loginCustomerId) {
+  if (useLoginCustomerId && config.loginCustomerId) {
     headers["login-customer-id"] = config.loginCustomerId;
   }
 
@@ -301,6 +311,19 @@ async function searchGoogleAds(token: string, customerId: string, query: string)
 
   const chunks = Array.isArray(data) ? data : [data];
   return chunks.flatMap((chunk) => (chunk.results ?? []) as GoogleAdsRow[]);
+}
+
+async function searchGoogleAds(token: string, customerId: string, query: string) {
+  const config = getGoogleAdsConfig();
+
+  try {
+    return await runGoogleAdsSearchRequest(token, customerId, query, config, true);
+  } catch (error) {
+    if (!config.loginCustomerId || !shouldRetryGoogleAdsWithoutLoginCustomer(error)) {
+      throw error;
+    }
+    return runGoogleAdsSearchRequest(token, customerId, query, config, false);
+  }
 }
 
 function periodCondition(period: Period) {

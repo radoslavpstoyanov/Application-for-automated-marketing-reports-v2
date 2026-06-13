@@ -203,6 +203,7 @@ export async function GET() {
       let accessibleCustomerIds: string[] = [];
       let listAccessibleSucceeded = false;
       let managerHierarchySucceeded = false;
+      let managerHierarchyError = "";
 
       googleAdsDiagnostics.push(`Google Ads API version: ${config.apiVersion}`);
       googleAdsDiagnostics.push(`Developer token configured: yes`);
@@ -234,8 +235,8 @@ export async function GET() {
         } catch (error: any) {
           reportLogger.warn("Google Ads customer clients fetch failed");
           const message = error.message || "Неизвестна грешка.";
+          managerHierarchyError = message;
           googleAdsDiagnostics.push(`MCC hierarchy query failed: ${message}`);
-          warnings.push(`Не можахме да заредим Google Ads клиентските акаунти през MCC ${config.loginCustomerId}. ${message}`);
         }
       } else if (accessibleCustomerIds.length > 0) {
         for (const customerId of accessibleCustomerIds) {
@@ -272,6 +273,8 @@ export async function GET() {
       if (googleAdsAccounts.length === 0) {
         if (!listAccessibleSucceeded) {
           warnings.push("Не можахме да заредим Google Ads акаунтите. Проверете Developer Token, adwords OAuth scope и достъпа до Ads акаунта.");
+        } else if (config.loginCustomerId && managerHierarchyError) {
+          warnings.push(`Не можахме да заредим Google Ads клиентските акаунти през MCC ${config.loginCustomerId}. ${managerHierarchyError}`);
         } else if (config.loginCustomerId && managerHierarchySucceeded) {
           warnings.push("Google Ads Manager акаунтът е достъпен, но не върна активни клиентски акаунти.");
         } else {
