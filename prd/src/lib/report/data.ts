@@ -95,6 +95,13 @@ export function sourceFeedback(sourceType: SourceType, message?: string) {
   if (
     sourceType === "google_ads" &&
     message &&
+    /CUSTOMER_NOT_ENABLED|not yet enabled|deactivated/i.test(message)
+  ) {
+    return "Избраният Google Ads акаунт не е активен или е деактивиран. Изберете друг активен Google Ads акаунт от настройките на проекта.";
+  }
+  if (
+    sourceType === "google_ads" &&
+    message &&
     /GOOGLE_ADS|Google Ads|Developer Token|insufficient authentication scopes|permission|AuthorizationError|AuthenticationError|RequestError|QuotaError|\[HTTP|Google request ID|LOGIN_CUSTOMER|CUSTOMER/i.test(message)
   ) {
     return message;

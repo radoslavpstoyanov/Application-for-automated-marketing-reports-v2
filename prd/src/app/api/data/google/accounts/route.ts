@@ -38,9 +38,27 @@ interface GoogleAdsCustomerClientRow {
   };
 }
 
+interface GoogleAdsCustomerRow {
+  customer?: {
+    id?: string | number;
+    descriptiveName?: string;
+    manager?: boolean;
+    status?: string;
+  };
+}
+
 function getCustomerClientId(client: GoogleAdsCustomerClientRow["customerClient"]) {
   const raw = client?.clientCustomer ?? client?.id ?? "";
   return String(raw).replace(/^customers\//, "").replace(/\D/g, "");
+}
+
+function getCustomerId(customer: GoogleAdsCustomerRow["customer"]) {
+  return String(customer?.id ?? "").replace(/\D/g, "");
+}
+
+function isCustomerNotEnabledError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /CUSTOMER_NOT_ENABLED|not yet enabled|deactivated/i.test(message);
 }
 
 function addGoogleAdsAccount(accounts: Map<string, GoogleAdsAccount>, id: string, name?: string) {
@@ -98,6 +116,78 @@ async function fetchAccessibleGoogleAdsCustomers(config: GoogleAdsConfig, access
   return (data.resourceNames ?? [])
     .map((resourceName: string) => normalizeGoogleAdsCustomerId(resourceName))
     .filter(Boolean) as string[];
+}
+
+async function fetchGoogleAdsCustomer(
+  config: GoogleAdsConfig,
+  accessToken: string,
+  customerId: string,
+  loginCustomerId?: string
+) {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    "developer-token": config.developerToken,
+  };
+  if (loginCustomerId) {
+    headers["login-customer-id"] = loginCustomerId;
+  }
+
+  const response = await fetch(`https://googleads.googleapis.com/${config.apiVersion}/customers/${customerId}/googleAds:searchStream`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      query: `
+        SELECT
+          customer.id,
+          customer.descriptive_name,
+          customer.manager,
+          customer.status
+        FROM customer
+      `,
+    }),
+  });
+  const data = await readGoogleAdsJson(response);
+  const chunks = Array.isArray(data) ? data : [data];
+  return chunks.flatMap((chunk) => chunk.results ?? [])[0] as GoogleAdsCustomerRow | undefined;
+}
+
+async function addDirectAccessibleGoogleAdsAccounts(
+  config: GoogleAdsConfig,
+  accessToken: string,
+  customerIds: string[],
+  excludedCustomerId: string | undefined,
+  accounts: Map<string, GoogleAdsAccount>,
+  diagnostics: string[]
+) {
+  for (const customerId of customerIds) {
+    if (customerId === excludedCustomerId) continue;
+
+    try {
+      const row = await fetchGoogleAdsCustomer(config, accessToken, customerId);
+      const customer = row?.customer;
+      const id = getCustomerId(customer) || customerId;
+
+      if (customer?.status && customer.status !== "ENABLED") {
+        diagnostics.push(`Direct accessible customer ${customerId} skipped because status is ${customer.status}.`);
+        continue;
+      }
+
+      if (customer?.manager) {
+        const managersSearched = await addGoogleAdsHierarchyAccounts(config, accessToken, id, id, accounts);
+        diagnostics.push(`Direct accessible manager hierarchy query succeeded for ${id}. Managers searched: ${managersSearched}. Accounts found so far: ${accounts.size}`);
+      } else {
+        addGoogleAdsAccount(accounts, id, customer?.descriptiveName);
+      }
+    } catch (error: any) {
+      const message = error.message || "Неизвестна грешка.";
+      if (isCustomerNotEnabledError(error)) {
+        diagnostics.push(`Direct accessible customer ${customerId} skipped because it is not enabled: ${message}`);
+      } else {
+        diagnostics.push(`Direct accessible customer ${customerId} skipped because details could not be loaded: ${message}`);
+      }
+    }
+  }
 }
 
 async function addGoogleAdsHierarchyAccounts(
@@ -254,18 +344,20 @@ export async function GET() {
           } catch (error: any) {
             const message = error.message || "Неизвестна грешка.";
             googleAdsDiagnostics.push(`Accessible customer hierarchy query failed for ${customerId}: ${message}`);
-            addGoogleAdsAccount(googleAdsAccountsById, customerId);
           }
         }
       }
 
       if (googleAdsAccountsById.size === 0 && listAccessibleSucceeded) {
-        for (const customerId of accessibleCustomerIds) {
-          if (customerId !== config.loginCustomerId) {
-            addGoogleAdsAccount(googleAdsAccountsById, customerId);
-          }
-        }
-        googleAdsDiagnostics.push(`Direct accessible fallback applied. Accounts found: ${googleAdsAccountsById.size}`);
+        await addDirectAccessibleGoogleAdsAccounts(
+          config,
+          accessToken,
+          accessibleCustomerIds,
+          config.loginCustomerId,
+          googleAdsAccountsById,
+          googleAdsDiagnostics
+        );
+        googleAdsDiagnostics.push(`Validated direct accessible fallback applied. Accounts found: ${googleAdsAccountsById.size}`);
       }
 
       googleAdsAccounts.push(...Array.from(googleAdsAccountsById.values()).sort((a, b) => a.name.localeCompare(b.name)));
