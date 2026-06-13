@@ -369,6 +369,7 @@ async function fetchGoogleAdsConversionRows(token: string, customerId: string, p
   return searchGoogleAds(token, customerId, `
     SELECT
       segments.date,
+      segments.conversion_action_name,
       metrics.conversions,
       metrics.conversions_value
     FROM customer
@@ -398,6 +399,7 @@ async function fetchGoogleAdsCampaignConversionRows(token: string, customerId: s
     SELECT
       campaign.id,
       campaign.name,
+      segments.conversion_action_name,
       metrics.conversions,
       metrics.conversions_value
     FROM campaign
