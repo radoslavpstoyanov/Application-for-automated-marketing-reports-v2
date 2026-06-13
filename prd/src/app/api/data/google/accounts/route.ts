@@ -2,6 +2,13 @@ import { getServerSession } from "next-auth";
 import { PrismaClient } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
+import {
+  cleanEnvValue,
+  getGoogleAdsConfig,
+  normalizeGoogleAdsCustomerId,
+  readGoogleAdsJson,
+  type GoogleAdsConfig,
+} from "@/lib/integrations/google-ads";
 import { getProviderAccessToken } from "@/lib/integrations/tokens";
 import { reportLogger } from "@/lib/report/logger";
 
@@ -16,116 +23,123 @@ interface AccountSummary {
   propertySummaries?: PropertySummary[];
 }
 
-function normalizeCustomerId(value: string) {
-  return value.replace(/\D/g, "");
+interface GoogleAdsAccount {
+  id: string;
+  name: string;
 }
 
-function cleanEnvValue(value: string | undefined) {
-  return value?.trim();
+interface GoogleAdsCustomerClientRow {
+  customerClient?: {
+    clientCustomer?: string;
+    id?: string | number;
+    descriptiveName?: string;
+    manager?: boolean;
+    status?: string;
+  };
 }
 
-function uniqueMessages(messages: string[]) {
-  return Array.from(new Set(messages.map((message) => message.trim()).filter(Boolean)));
+function getCustomerClientId(client: GoogleAdsCustomerClientRow["customerClient"]) {
+  const raw = client?.clientCustomer ?? client?.id ?? "";
+  return String(raw).replace(/^customers\//, "").replace(/\D/g, "");
 }
 
-function textSnippet(text: string) {
-  return text.replace(/\s+/g, " ").trim().slice(0, 800);
-}
+function addGoogleAdsAccount(accounts: Map<string, GoogleAdsAccount>, id: string, name?: string) {
+  if (!id) return;
 
-async function readResponseBody(response: Response) {
-  const text = await response.text();
-  try {
-    return { data: text ? JSON.parse(text) : null, text };
-  } catch {
-    return { data: null, text };
+  const fallbackName = `Customer ${id}`;
+  const current = accounts.get(id);
+  if (!current || (current.name === fallbackName && name)) {
+    accounts.set(id, { id, name: name || fallbackName });
   }
-}
-
-function googleAdsErrorMessage(data: any, rawText = "") {
-  const messages: string[] = [];
-  const error = data?.error;
-
-  if (typeof error?.message === "string" && error.message.trim()) {
-    messages.push(error.message);
-  }
-
-  for (const detail of error?.details ?? []) {
-    for (const adsError of detail?.errors ?? []) {
-      if (typeof adsError?.message === "string" && adsError.message.trim()) {
-        messages.push(adsError.message);
-      }
-
-      const errorCode = adsError?.errorCode;
-      if (errorCode && typeof errorCode === "object") {
-        const code = Object.entries(errorCode)
-          .map(([group, value]) => `${group}: ${value}`)
-          .join(", ");
-        if (code) messages.push(code);
-      }
-    }
-
-    if (typeof detail?.requestId === "string" && detail.requestId.trim()) {
-      messages.push(`Google request ID: ${detail.requestId}`);
-    }
-  }
-
-  if (typeof error?.status === "string" && error.status.trim()) {
-    messages.push(`Status: ${error.status}`);
-  }
-
-  const rawSnippet = textSnippet(rawText);
-  if (!messages.length && rawSnippet) {
-    messages.push(`Raw response: ${rawSnippet}`);
-  }
-
-  return uniqueMessages(messages).join(" ");
-}
-
-function googleAdsHttpError(response: Response, data: any, rawText: string) {
-  const parsed = googleAdsErrorMessage(data, rawText);
-  return `[HTTP ${response.status} ${response.statusText}] ${parsed || "Google Ads API върна грешка без JSON body."}`;
 }
 
 async function fetchGoogleAdsCustomerClients(
-  apiVersion: string,
+  config: GoogleAdsConfig,
   accessToken: string,
-  developerToken: string,
-  managerCustomerId: string
+  customerId: string,
+  loginCustomerId: string
 ) {
-  const response = await fetch(`https://googleads.googleapis.com/${apiVersion}/customers/${managerCustomerId}/googleAds:searchStream`, {
+  const response = await fetch(`https://googleads.googleapis.com/${config.apiVersion}/customers/${customerId}/googleAds:searchStream`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
-      "developer-token": developerToken,
-      "login-customer-id": managerCustomerId,
+      "developer-token": config.developerToken,
+      "login-customer-id": loginCustomerId,
     },
     body: JSON.stringify({
       query: `
         SELECT
           customer_client.client_customer,
+          customer_client.id,
           customer_client.descriptive_name,
           customer_client.manager,
-          customer_client.status
+          customer_client.status,
+          customer_client.level
         FROM customer_client
-        WHERE customer_client.status = 'ENABLED'
+        WHERE customer_client.level <= 1
       `,
     }),
   });
-  const { data, text } = await readResponseBody(response);
-
-  if (!response.ok) {
-    throw new Error(googleAdsHttpError(response, data, text));
-  }
+  const data = await readGoogleAdsJson(response);
 
   const chunks = Array.isArray(data) ? data : [data];
-  return chunks.flatMap((chunk) => chunk.results ?? []) as Array<{
-    customerClient?: {
-      clientCustomer?: string;
-      descriptiveName?: string;
-      manager?: boolean;
-    };
-  }>;
+  return chunks.flatMap((chunk) => chunk.results ?? []) as GoogleAdsCustomerClientRow[];
+}
+
+async function fetchAccessibleGoogleAdsCustomers(config: GoogleAdsConfig, accessToken: string) {
+  const response = await fetch(`https://googleads.googleapis.com/${config.apiVersion}/customers:listAccessibleCustomers`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "developer-token": config.developerToken,
+    },
+  });
+  const data = await readGoogleAdsJson(response);
+  return (data.resourceNames ?? [])
+    .map((resourceName: string) => normalizeGoogleAdsCustomerId(resourceName))
+    .filter(Boolean) as string[];
+}
+
+async function addGoogleAdsHierarchyAccounts(
+  config: GoogleAdsConfig,
+  accessToken: string,
+  rootCustomerId: string,
+  loginCustomerId: string,
+  accounts: Map<string, GoogleAdsAccount>
+) {
+  const managerQueue = [rootCustomerId];
+  const searchedManagers = new Set<string>();
+
+  while (managerQueue.length > 0) {
+    const customerId = managerQueue.shift()!;
+    if (searchedManagers.has(customerId)) continue;
+    searchedManagers.add(customerId);
+
+    const rows = await fetchGoogleAdsCustomerClients(config, accessToken, customerId, loginCustomerId);
+    for (const row of rows) {
+      const client = row.customerClient;
+      if (client?.status && client.status !== "ENABLED") continue;
+
+      const id = getCustomerClientId(client);
+      if (!id) continue;
+
+      const isSelf = id === customerId;
+      if (isSelf) {
+        if (!client?.manager) {
+          addGoogleAdsAccount(accounts, id, client?.descriptiveName);
+        }
+        continue;
+      }
+
+      if (client?.manager) {
+        managerQueue.push(id);
+      } else {
+        addGoogleAdsAccount(accounts, id, client?.descriptiveName);
+      }
+    }
+  }
+
+  return searchedManagers.size;
 }
 
 export async function GET() {
@@ -184,71 +198,85 @@ export async function GET() {
 
     const googleAdsDeveloperToken = cleanEnvValue(process.env.GOOGLE_ADS_DEVELOPER_TOKEN);
     if (googleAdsDeveloperToken) {
-      const googleAdsApiVersion = cleanEnvValue(process.env.GOOGLE_ADS_API_VERSION) || "v22";
-      const googleAdsLoginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
-        ? normalizeCustomerId(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID)
-        : "";
-      googleAdsDiagnostics.push(`Google Ads API version: ${googleAdsApiVersion}`);
-      googleAdsDiagnostics.push(`Developer token configured: yes`);
-      googleAdsDiagnostics.push(`Login customer ID: ${googleAdsLoginCustomerId || "not configured"}`);
-      const googleAdsHeaders: Record<string, string> = {
-        Authorization: `Bearer ${accessToken}`,
-        "developer-token": googleAdsDeveloperToken,
-      };
+      const googleAdsAccountsById = new Map<string, GoogleAdsAccount>();
+      const config = getGoogleAdsConfig();
+      let accessibleCustomerIds: string[] = [];
+      let listAccessibleSucceeded = false;
+      let managerHierarchySucceeded = false;
 
-      if (googleAdsLoginCustomerId) {
+      googleAdsDiagnostics.push(`Google Ads API version: ${config.apiVersion}`);
+      googleAdsDiagnostics.push(`Developer token configured: yes`);
+      googleAdsDiagnostics.push(`Login customer ID: ${config.loginCustomerId || "not configured"}`);
+
+      try {
+        accessibleCustomerIds = await fetchAccessibleGoogleAdsCustomers(config, accessToken);
+        listAccessibleSucceeded = true;
+        googleAdsDiagnostics.push(`listAccessibleCustomers succeeded. Directly accessible customers found: ${accessibleCustomerIds.length}`);
+      } catch (error: any) {
+        reportLogger.warn("Google Ads customers fetch failed");
+        const message = error.message || "Неизвестна грешка.";
+        googleAdsDiagnostics.push(`listAccessibleCustomers failed: ${message}`);
+      }
+
+      if (config.loginCustomerId) {
         try {
-          const clients = await fetchGoogleAdsCustomerClients(
-            googleAdsApiVersion,
+          const managersSearched = await addGoogleAdsHierarchyAccounts(
+            config,
             accessToken,
-            googleAdsDeveloperToken,
-            googleAdsLoginCustomerId
+            config.loginCustomerId,
+            config.loginCustomerId,
+            googleAdsAccountsById
           );
-          for (const row of clients) {
-            const client = row.customerClient;
-            const id = String(client?.clientCustomer ?? "").replace("customers/", "");
-            if (id && id !== googleAdsLoginCustomerId && !client?.manager) {
-              googleAdsAccounts.push({ id, name: client?.descriptiveName || `Customer ${id}` });
-            }
-          }
-          googleAdsDiagnostics.push(`MCC customer_client query succeeded. Client accounts found: ${googleAdsAccounts.length}`);
+          managerHierarchySucceeded = true;
+          googleAdsDiagnostics.push(
+            `MCC hierarchy query succeeded. Managers searched: ${managersSearched}. Client accounts found: ${googleAdsAccountsById.size}`
+          );
         } catch (error: any) {
           reportLogger.warn("Google Ads customer clients fetch failed");
           const message = error.message || "Неизвестна грешка.";
-          googleAdsDiagnostics.push(`MCC customer_client query failed: ${message}`);
-          warnings.push(`Не можахме да заредим Google Ads клиентските акаунти. ${message}`);
+          googleAdsDiagnostics.push(`MCC hierarchy query failed: ${message}`);
+          warnings.push(`Не можахме да заредим Google Ads клиентските акаунти през MCC ${config.loginCustomerId}. ${message}`);
+        }
+      } else if (accessibleCustomerIds.length > 0) {
+        for (const customerId of accessibleCustomerIds) {
+          try {
+            const managersSearched = await addGoogleAdsHierarchyAccounts(
+              config,
+              accessToken,
+              customerId,
+              customerId,
+              googleAdsAccountsById
+            );
+            googleAdsDiagnostics.push(
+              `Accessible customer hierarchy query succeeded for ${customerId}. Managers searched: ${managersSearched}. Accounts found so far: ${googleAdsAccountsById.size}`
+            );
+          } catch (error: any) {
+            const message = error.message || "Неизвестна грешка.";
+            googleAdsDiagnostics.push(`Accessible customer hierarchy query failed for ${customerId}: ${message}`);
+            addGoogleAdsAccount(googleAdsAccountsById, customerId);
+          }
         }
       }
+
+      if (googleAdsAccountsById.size === 0 && listAccessibleSucceeded) {
+        for (const customerId of accessibleCustomerIds) {
+          if (customerId !== config.loginCustomerId) {
+            addGoogleAdsAccount(googleAdsAccountsById, customerId);
+          }
+        }
+        googleAdsDiagnostics.push(`Direct accessible fallback applied. Accounts found: ${googleAdsAccountsById.size}`);
+      }
+
+      googleAdsAccounts.push(...Array.from(googleAdsAccountsById.values()).sort((a, b) => a.name.localeCompare(b.name)));
 
       if (googleAdsAccounts.length === 0) {
-        const adsRes = await fetch(`https://googleads.googleapis.com/${googleAdsApiVersion}/customers:listAccessibleCustomers`, {
-          headers: googleAdsHeaders,
-        });
-        const { data: adsData, text: adsText } = await readResponseBody(adsRes);
-        if (!adsRes.ok) {
-          const details = googleAdsHttpError(adsRes, adsData, adsText);
-          reportLogger.warn("Google Ads customers fetch failed");
-          googleAdsDiagnostics.push(`listAccessibleCustomers failed: ${details}`);
-          warnings.push(
-            `Не можахме да заредим Google Ads акаунтите. ${
-              details || "Проверете Developer Token, adwords OAuth scope и достъпа до Ads акаунта."
-            }`
-          );
+        if (!listAccessibleSucceeded) {
+          warnings.push("Не можахме да заредим Google Ads акаунтите. Проверете Developer Token, adwords OAuth scope и достъпа до Ads акаунта.");
+        } else if (config.loginCustomerId && managerHierarchySucceeded) {
+          warnings.push("Google Ads Manager акаунтът е достъпен, но не върна активни клиентски акаунти.");
         } else {
-          for (const resourceName of adsData.resourceNames ?? []) {
-            const id = String(resourceName).replace("customers/", "");
-            if (id) {
-              googleAdsAccounts.push({ id, name: `Customer ${id}` });
-            }
-          }
-          googleAdsDiagnostics.push(`listAccessibleCustomers succeeded. Accounts found: ${googleAdsAccounts.length}`);
+          warnings.push("Google Ads API е достъпен, но не върна акаунти за този Google потребител.");
         }
-      }
-
-      if (googleAdsLoginCustomerId && googleAdsAccounts.length === 0) {
-        warnings.push("Google Ads Manager акаунтът е достъпен, но не върна активни клиентски акаунти.");
-      } else {
-        googleAdsAccounts.sort((a, b) => a.name.localeCompare(b.name));
       }
     } else {
       warnings.push("Google Ads акаунтите не са заредени, защото липсва GOOGLE_ADS_DEVELOPER_TOKEN.");

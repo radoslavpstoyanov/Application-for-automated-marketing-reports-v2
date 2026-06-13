@@ -1,4 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
+import {
+  getGoogleAdsConfig,
+  normalizeGoogleAdsCustomerId,
+  readGoogleAdsJson,
+} from "@/lib/integrations/google-ads";
 import { fetchWithRetry } from "@/lib/integrations/http";
 import { getProviderAccessToken } from "@/lib/integrations/tokens";
 import {
@@ -87,7 +92,11 @@ export function sourceFeedback(sourceType: SourceType, message?: string) {
   if (message?.includes("отне твърде много време")) {
     return `Зареждането от ${labels[sourceType]} отне твърде много време. Опитайте отново.`;
   }
-  if (sourceType === "google_ads" && message && /GOOGLE_ADS|Developer Token|Google Ads API|insufficient authentication scopes|permission/i.test(message)) {
+  if (
+    sourceType === "google_ads" &&
+    message &&
+    /GOOGLE_ADS|Google Ads|Developer Token|insufficient authentication scopes|permission|AuthorizationError|AuthenticationError|RequestError|QuotaError|\[HTTP|Google request ID|LOGIN_CUSTOMER|CUSTOMER/i.test(message)
+  ) {
     return message;
   }
   if (message && /връзката|интеграция|Свържете/.test(message)) return message;
@@ -263,35 +272,8 @@ function microsToCurrency(value: string | number | undefined) {
   return toGoogleAdsNumber(value) / 1_000_000;
 }
 
-function normalizeCustomerId(customerId: string) {
-  const normalized = customerId.replace(/^customers\//, "").replace(/\D/g, "");
-  if (!normalized) {
-    throw new Error("Невалиден Google Ads Customer ID.");
-  }
-  return normalized;
-}
-
-function cleanEnvValue(value: string | undefined) {
-  return value?.trim();
-}
-
 function escapeGaqlString(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-}
-
-function getGoogleAdsConfig() {
-  const developerToken = cleanEnvValue(process.env.GOOGLE_ADS_DEVELOPER_TOKEN);
-  if (!developerToken) {
-    throw new Error("Липсва GOOGLE_ADS_DEVELOPER_TOKEN. Добавете Google Ads Developer Token в .env.local и рестартирайте dev server-а.");
-  }
-
-  return {
-    apiVersion: cleanEnvValue(process.env.GOOGLE_ADS_API_VERSION) || "v22",
-    developerToken,
-    loginCustomerId: cleanEnvValue(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID)
-      ? normalizeCustomerId(cleanEnvValue(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID)!)
-      : undefined,
-  };
 }
 
 async function searchGoogleAds(token: string, customerId: string, query: string) {
@@ -315,11 +297,7 @@ async function searchGoogleAds(token: string, customerId: string, query: string)
     },
     15000
   );
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error?.message || "Неуспешно извличане на Google Ads данни.");
-  }
+  const data = await readGoogleAdsJson(response);
 
   const chunks = Array.isArray(data) ? data : [data];
   return chunks.flatMap((chunk) => (chunk.results ?? []) as GoogleAdsRow[]);
@@ -420,7 +398,7 @@ async function fetchGoogleAdsKpis(token: string, customerId: string, source: Rep
 }
 
 export async function fetchGoogleAdsData(token: string, source: ReportSourceInput, period: Period, comparison?: Period) {
-  const customerId = normalizeCustomerId(source.externalAccountId);
+  const customerId = normalizeGoogleAdsCustomerId(source.externalAccountId);
   const [current, previous, trendRows, campaignTrafficRows, campaignConversionRows] = await Promise.all([
     fetchGoogleAdsKpis(token, customerId, source, period),
     comparison ? fetchGoogleAdsKpis(token, customerId, source, comparison) : Promise.resolve(undefined),
