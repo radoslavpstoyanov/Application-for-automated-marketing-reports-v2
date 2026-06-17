@@ -16,7 +16,7 @@ export async function GET() {
     client_id: process.env.META_APP_ID!,
     redirect_uri: `${process.env.NEXTAUTH_URL}/api/oauth/meta/callback`,
     state,
-    scope: "ads_read,ads_management,business_management",
+    scope: "ads_read",
     response_type: "code",
   });
 
