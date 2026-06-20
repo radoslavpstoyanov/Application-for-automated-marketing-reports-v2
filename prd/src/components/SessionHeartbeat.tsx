@@ -14,15 +14,15 @@ export function SessionHeartbeat() {
 
     // Function to renew the cookie
     const renewHeartbeat = () => {
-      // Set the cookie to expire in 15 seconds
-      document.cookie = "vectory-heartbeat=1; path=/; max-age=15";
+      // Keep this as a browser-session cookie so it disappears when the browser session ends.
+      document.cookie = "vectory-heartbeat=1; path=/; SameSite=Lax";
     };
 
     // Initial renewal
     renewHeartbeat();
 
-    // Renew every 5 seconds as long as the tab is open
-    const interval = setInterval(renewHeartbeat, 5000);
+    // Re-assert periodically in case the browser clears transient cookies while the tab is open.
+    const interval = setInterval(renewHeartbeat, 30000);
 
     return () => clearInterval(interval);
   }, [session]);

@@ -58,7 +58,7 @@ function LoginForm() {
       } else {
         if (!rememberMe) {
           // Initialize heartbeat cookie before redirect so middleware sees it immediately
-          document.cookie = "vectory-heartbeat=1; path=/; max-age=15";
+          document.cookie = "vectory-heartbeat=1; path=/; SameSite=Lax";
           // Clear any legacy cookie just in case
           document.cookie = "vectory-session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
         } else {

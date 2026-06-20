@@ -30,10 +30,17 @@ DATABASE_URL="file:./dev.db"
 
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `META_APP_ID` и `META_APP_SECRET` са нужни, когато се тества реалният OAuth flow.
 
-В текущото работно копие `node_modules` и `prisma/dev.db` вече съществуват, така че обичайното стартиране е:
+Приложението вече използва PostgreSQL schema. Локалният `DATABASE_URL` трябва да сочи към работещ PostgreSQL, например:
+
+```env
+DATABASE_URL="postgresql://user:password@localhost:5432/marketing_reports?schema=public"
+```
+
+Старото `DATABASE_URL="file:./dev.db"` е от SQLite варианта и чупи Prisma runtime при регистрация/вход. След като PostgreSQL базата работи и миграциите са приложени, обичайното стартиране е:
 
 ```powershell
 cd C:\Users\rstoy\Application-for-automated-marketing-reports-v2\prd
+npx prisma migrate deploy
 npm run dev
 ```
 
