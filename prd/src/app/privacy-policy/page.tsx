@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | Automated Marketing Reports",
-  description: "Privacy policy for Automated Marketing Reports.",
+  title: "Privacy Policy | Lead Desing",
+  description: "Privacy policy for Lead Desing.",
 };
 
 const sectionStyle = {
@@ -23,7 +23,7 @@ export default function PrivacyPolicyPage() {
         <section style={sectionStyle}>
           <h2>Overview</h2>
           <p>
-            Automated Marketing Reports helps users connect marketing data sources and generate reports. This policy
+            Lead Desing helps users connect marketing data sources and generate reports. This policy
             explains what information is collected and how it is used.
           </p>
         </section>

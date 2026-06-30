@@ -3,7 +3,7 @@ import "./globals.css";
 import { Providers } from "@/components/Providers";
 
 export const metadata: Metadata = {
-  title: "Automated Marketing Reports",
+  title: "Lead Desing",
   description: "Generate professional marketing reports in minutes.",
 };
 

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Data Deletion Instructions | Automated Marketing Reports",
-  description: "Instructions for requesting data deletion from Automated Marketing Reports.",
+  title: "Data Deletion Instructions | Lead Desing",
+  description: "Instructions for requesting data deletion from Lead Desing.",
 };
 
 const sectionStyle = {
@@ -23,7 +23,7 @@ export default function DataDeletionPage() {
         <section style={sectionStyle}>
           <h2>How To Request Deletion</h2>
           <p>
-            To request deletion of your Automated Marketing Reports account data, send an email to{" "}
+            To request deletion of your Lead Desing account data, send an email to{" "}
             <a href="mailto:r.stoyanov.p@gmail.com" style={{ color: "var(--primary-medium)", fontWeight: 700 }}>
               r.stoyanov.p@gmail.com
             </a>{" "}

@@ -221,7 +221,7 @@ export default function IntegrationsClient({
           <div style={headerRowStyle}>
             <div>
               <h3 style={{ fontSize: "1.1rem", marginBottom: "0.3rem" }}>
-                Google Analytics &amp; Search Console
+                Google Analytics &amp; Search Console + Google Ads
               </h3>
               <p style={{ fontSize: "0.85rem", color: "var(--muted-foreground)", marginBottom: "0.5rem" }}>
                 Достъп до данни за трафик, търсене и реклами в Google

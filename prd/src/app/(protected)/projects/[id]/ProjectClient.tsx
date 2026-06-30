@@ -189,6 +189,48 @@ function getMatchingComparisonEnd(reportingStart: string, reportingEnd: string, 
   return comparisonEnd > maxDate ? maxDate : comparisonEnd;
 }
 
+const weekdayLabels = ["НД", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ"];
+const monthFormatter = new Intl.DateTimeFormat("bg-BG", {
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+function clampIsoDate(value: string, min: string, max: string) {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
+function getInitialCalendarDate(value: string, min: string, max: string) {
+  const today = getTodayDateInputValue();
+  const fallback = clampIsoDate(today, min, max);
+  return parseDateInputValue(value || fallback) ?? parseDateInputValue(max) ?? new Date();
+}
+
+function addCalendarMonths(date: Date, amount: number) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1));
+}
+
+function getCalendarCells(displayMonth: Date) {
+  const year = displayMonth.getUTCFullYear();
+  const month = displayMonth.getUTCMonth();
+  const firstDay = new Date(Date.UTC(year, month, 1));
+  const firstVisible = new Date(firstDay);
+  firstVisible.setUTCDate(firstDay.getUTCDate() - firstDay.getUTCDay());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(firstVisible);
+    date.setUTCDate(firstVisible.getUTCDate() + index);
+    return {
+      date,
+      iso: toDateInputValue(date),
+      day: date.getUTCDate(),
+      isCurrentMonth: date.getUTCMonth() === month,
+    };
+  });
+}
+
 function DatePickerField({
   value,
   onChange,
@@ -206,30 +248,60 @@ function DatePickerField({
   disabled?: boolean;
   ariaLabel: string;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftValue, setDraftValue] = useState(value);
+  const [displayMonth, setDisplayMonth] = useState(() => getInitialCalendarDate(value, min, max));
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+        setDraftValue(value);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+        setDraftValue(value);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, value]);
+
   const openPicker = () => {
     if (disabled) return;
-
-    const input = inputRef.current;
-    if (!input) return;
-
-    input.focus();
-    try {
-      if (typeof input.showPicker === "function") {
-        input.showPicker();
-      } else {
-        input.click();
-      }
-    } catch {
-      input.click();
-    }
+    setDraftValue(value);
+    setDisplayMonth(getInitialCalendarDate(value, min, max));
+    setIsOpen(true);
   };
+  const handleSave = () => {
+    onChange(draftValue);
+    setIsOpen(false);
+  };
+  const handleToday = () => {
+    const today = clampIsoDate(getTodayDateInputValue(), min, max);
+    setDraftValue(today);
+    setDisplayMonth(getInitialCalendarDate(today, min, max));
+  };
+  const cells = getCalendarCells(displayMonth);
+  const selectedIso = draftValue;
+  const monthLabel = monthFormatter.format(displayMonth);
 
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={containerRef} style={{ position: "relative" }}>
       <button
         type="button"
         aria-label={ariaLabel}
+        aria-expanded={isOpen}
         disabled={disabled}
         onClick={openPicker}
         style={{
@@ -255,26 +327,174 @@ function DatePickerField({
           <path d="M16 2v4M8 2v4M3 10h18" />
         </svg>
       </button>
-      <input
-        ref={inputRef}
-        type="date"
-        lang="bg-BG"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        tabIndex={-1}
-        aria-hidden="true"
-        style={{
-          cursor: disabled ? "not-allowed" : "pointer",
-          height: "100%",
-          inset: 0,
-          opacity: 0,
-          position: "absolute",
-          width: "100%",
-        }}
-      />
+
+      {isOpen && (
+        <div
+          role="dialog"
+          aria-label={ariaLabel}
+          style={{
+            background: "#ffffff",
+            border: "1px solid #e5e7eb",
+            borderRadius: "0.85rem",
+            boxShadow: "0 18px 45px rgba(15, 23, 42, 0.16)",
+            color: "#17211c",
+            left: 0,
+            padding: "1rem",
+            position: "absolute",
+            top: "calc(100% + 0.55rem)",
+            width: "320px",
+            zIndex: 1400,
+          }}
+        >
+          <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", marginBottom: "1rem" }}>
+            <button
+              type="button"
+              aria-label="Предишен месец"
+              onClick={() => setDisplayMonth((current) => addCalendarMonths(current, -1))}
+              style={{
+                alignItems: "center",
+                background: "transparent",
+                border: "none",
+                color: "#94a3b8",
+                display: "flex",
+                height: "32px",
+                justifyContent: "center",
+                padding: 0,
+                width: "32px",
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" aria-hidden="true">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+
+            <div style={{ color: "#334155", fontSize: "0.95rem", fontWeight: 800, textTransform: "capitalize" }}>
+              {monthLabel}
+            </div>
+
+            <button
+              type="button"
+              aria-label="Следващ месец"
+              onClick={() => setDisplayMonth((current) => addCalendarMonths(current, 1))}
+              style={{
+                alignItems: "center",
+                background: "transparent",
+                border: "none",
+                color: "#94a3b8",
+                display: "flex",
+                height: "32px",
+                justifyContent: "center",
+                padding: 0,
+                width: "32px",
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" aria-hidden="true">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: "0.45rem" }}>
+            {weekdayLabels.map((day) => (
+              <div key={day} style={{ color: "#94a3b8", fontSize: "0.66rem", fontWeight: 800, padding: "0.35rem 0", textAlign: "center" }}>
+                {day}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "grid", gap: "0.25rem", gridTemplateColumns: "repeat(7, 1fr)" }}>
+            {cells.map((cell) => {
+              const isSelected = cell.iso === selectedIso;
+              const isToday = cell.iso === getTodayDateInputValue();
+              const isDisabled = cell.iso < min || cell.iso > max;
+
+              return (
+                <button
+                  key={cell.iso}
+                  type="button"
+                  disabled={isDisabled}
+                  onClick={() => setDraftValue(cell.iso)}
+                  style={{
+                    alignItems: "center",
+                    background: isSelected ? "var(--primary)" : !cell.isCurrentMonth ? "#f1f5f9" : "transparent",
+                    border: isToday && !isSelected ? "1px solid rgba(67, 179, 112, 0.45)" : "1px solid transparent",
+                    borderRadius: isSelected ? "0.22rem" : "0.45rem",
+                    color: isDisabled ? "#cbd5e1" : isSelected ? "#ffffff" : cell.isCurrentMonth ? "#334155" : "#94a3b8",
+                    cursor: isDisabled ? "not-allowed" : "pointer",
+                    display: "flex",
+                    fontSize: "0.76rem",
+                    fontWeight: isSelected ? 800 : 600,
+                    height: "36px",
+                    justifyContent: "center",
+                    opacity: isDisabled ? 0.45 : 1,
+                    padding: 0,
+                    transition: "background 0.15s ease, color 0.15s ease, transform 0.15s ease",
+                  }}
+                >
+                  {cell.day}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", marginTop: "1rem" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setDraftValue(value);
+                setIsOpen(false);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#64748b",
+                fontSize: "0.72rem",
+                fontWeight: 800,
+                padding: "0.45rem 0.25rem",
+                textTransform: "uppercase",
+              }}
+            >
+              Отказ
+            </button>
+
+            <div style={{ display: "flex", gap: "0.45rem" }}>
+              <button
+                type="button"
+                onClick={handleToday}
+                style={{
+                  background: "#f1f5f9",
+                  border: "none",
+                  borderRadius: "999px",
+                  color: "var(--primary-medium)",
+                  fontSize: "0.72rem",
+                  fontWeight: 800,
+                  padding: "0.45rem 0.75rem",
+                  textTransform: "uppercase",
+                }}
+              >
+                Днес
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!draftValue}
+                style={{
+                  background: "var(--primary)",
+                  border: "none",
+                  borderRadius: "999px",
+                  color: "#ffffff",
+                  fontSize: "0.72rem",
+                  fontWeight: 800,
+                  padding: "0.45rem 0.8rem",
+                  textTransform: "uppercase",
+                }}
+              >
+                Запази
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1837,7 +2057,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
         <div className="container" style={{ marginTop: "4rem" }}>
           <div style={{ background: "#e5e7eb", padding: "4rem 2rem", borderRadius: "1rem", textAlign: "center", color: "#64748b" }}>
             <h3 style={{ color: "#0f172a", fontSize: "1.45rem", marginBottom: "0.75rem" }}>Преглед на отчета</h3>
-            <p style={{ margin: 0 }}>Generate preview to see the report</p>
+            <p style={{ margin: 0 }}>Генерирайте преглед, за да видите отчета</p>
           </div>
         </div>
       )}
@@ -2223,7 +2443,7 @@ export default function ProjectClient({ project, sources: initialSources, notes:
             
             {/* Footer stamp */}
             <div style={{ borderTop: "1px solid #f1f5f9", marginTop: "4rem", paddingTop: "1.5rem", display: "flex", justifyContent: "space-between", fontSize: "0.78rem", color: "#94a3b8" }}>
-              <span>Генериран от Vectory Reports</span>
+              <span>Генериран от Lead Desing</span>
               <span>© {new Date().getFullYear()} Всички права запазени</span>
             </div>
 

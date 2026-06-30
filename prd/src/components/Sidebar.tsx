@@ -55,8 +55,8 @@ export function Sidebar() {
     }}>
       {/* Logo Section */}
       <div style={{ marginBottom: "2rem", padding: "0.25rem 0.5rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
-        <Image src="/logo.webp" alt="Vectory" width={32} height={32} style={{ borderRadius: "4px" }} />
-        <span style={{ fontSize: "1.05rem", fontWeight: "700", color: "var(--primary-dark)" }}>Vectory Reports</span>
+        <Image src="/lead-desing-logo.png" alt="Lead Desing" width={32} height={32} style={{ borderRadius: "4px" }} />
+        <span style={{ fontSize: "1.05rem", fontWeight: "700", color: "var(--primary-dark)" }}>Lead Desing</span>
       </div>
 
       {/* Main Links */}
